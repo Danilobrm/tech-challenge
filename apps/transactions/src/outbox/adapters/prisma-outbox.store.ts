@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 
 import { PrismaService } from '../../database/prisma.service';
+import { describeError } from '../../shared/describe-error';
 import type { JsonObject } from '@challenge/contracts';
 import type { PendingOutboxMessage, PendingOutboxStore } from '../domain/outbox.ports';
 
@@ -39,12 +40,24 @@ export class PrismaOutboxStore implements PendingOutboxStore {
       take: limit,
     });
 
-    return messages.map((message) => ({
-      id: message.id,
-      aggregateId: message.aggregateId,
-      eventType: message.eventType,
-      payload: asJsonObject(message.payload),
-    }));
+    const pending: PendingOutboxMessage[] = [];
+
+    for (const message of messages) {
+      try {
+        pending.push({
+          id: message.id,
+          aggregateId: message.aggregateId,
+          eventType: message.eventType,
+          payload: asJsonObject(message.payload),
+        });
+      } catch (error) {
+        // A linha ilegivel conta como tentativa e sai do lote. Deixar a excecao subir
+        // derrubaria a leitura inteira, e nenhuma das mensagens sadias seria publicada.
+        await this.markFailed(message.id, describeError(error));
+      }
+    }
+
+    return pending;
   }
 
   async markPublished(id: string, publishedAt: Date): Promise<void> {
