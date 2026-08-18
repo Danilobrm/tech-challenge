@@ -1,8 +1,10 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { ScheduleModule } from '@nestjs/schedule';
 
 import { validateEnv } from './config/env';
 import { HealthController } from './health/health.controller';
+import { OutboxModule } from './outbox/outbox.module';
 import { TransactionsModule } from './transactions/transactions.module';
 
 @Module({
@@ -14,7 +16,10 @@ import { TransactionsModule } from './transactions/transactions.module';
       envFilePath: '../../.env',
       validate: validateEnv,
     }),
+    // Habilita o `@Interval` do worker da outbox.
+    ScheduleModule.forRoot(),
     TransactionsModule,
+    OutboxModule,
   ],
   controllers: [HealthController],
 })
