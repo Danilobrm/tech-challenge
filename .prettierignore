@@ -1,0 +1,12 @@
+node_modules/
+dist/
+build/
+.next/
+out/
+coverage/
+pnpm-lock.yaml
+*.tsbuildinfo
+
+# documentos do enunciado: texto de terceiros, formatacao nao e nossa para mexer
+README.md
+PRACTICES.md
