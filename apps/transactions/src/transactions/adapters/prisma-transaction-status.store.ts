@@ -1,12 +1,9 @@
 import { Injectable } from '@nestjs/common';
 
-import { PrismaService } from '../database/prisma.service';
-import { Prisma } from '../generated/prisma/client.js';
-import type {
-  StatusUpdateOutcome,
-  TransactionResolutionUpdate,
-  TransactionStatusStore,
-} from './transaction.types';
+import { PrismaService } from '../../database/prisma.service';
+import { Prisma } from '../../generated/prisma/client.js';
+import type { StatusUpdateOutcome, TransactionResolutionUpdate } from '../domain/transaction';
+import type { TransactionStatusStore } from '../domain/transaction.ports';
 
 const FOREIGN_KEY_VIOLATION = 'P2003';
 

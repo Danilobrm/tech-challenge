@@ -1,8 +1,8 @@
 import { Injectable } from '@nestjs/common';
 
-import { PrismaService } from '../database/prisma.service';
+import { PrismaService } from '../../database/prisma.service';
 import type { JsonObject } from '@challenge/contracts';
-import type { PendingOutboxMessage, PendingOutboxStore } from './outbox.types';
+import type { PendingOutboxMessage, PendingOutboxStore } from '../domain/outbox.ports';
 
 /**
  * Fronteira entre a coluna `jsonb` e o dominio: o banco devolve qualquer JSON, e o worker

@@ -1,6 +1,7 @@
-import { describeError } from '../shared/describe-error';
 import type { Clock } from '@challenge/messaging';
-import type { EventPublisher, OutboxRelayReport, PendingOutboxStore } from './outbox.types';
+
+import { describeError } from '../../shared/describe-error';
+import type { EventPublisher, OutboxRelayReport, PendingOutboxStore } from '../domain/outbox.ports';
 
 /**
  * Publica o que a outbox tem pendente e marca como publicado. E a segunda metade da

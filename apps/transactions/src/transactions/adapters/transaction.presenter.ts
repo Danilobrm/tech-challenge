@@ -1,4 +1,4 @@
-import type { PersistedTransaction, TransactionStatusName } from './transaction.types';
+import type { PersistedTransaction, TransactionStatusName } from '../domain/transaction';
 
 /** Formato de leitura do enunciado. */
 export interface TransactionView {

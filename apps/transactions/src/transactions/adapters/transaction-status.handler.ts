@@ -5,7 +5,7 @@ import {
   transactionStatusUpdatedEventSchema,
 } from '@challenge/contracts';
 
-import { ApplyTransactionResolution } from './apply-transaction-resolution.service';
+import { ApplyTransactionResolution } from '../application/apply-transaction-resolution';
 
 /** Adaptador fino: valida o payload, delega e registra o desfecho. */
 @Controller()

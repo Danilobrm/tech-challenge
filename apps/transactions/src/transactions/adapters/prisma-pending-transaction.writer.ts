@@ -1,14 +1,14 @@
 import { Injectable } from '@nestjs/common';
 
-import { PrismaService } from '../database/prisma.service';
-import { Prisma } from '../generated/prisma/client.js';
-import { UnknownTransferTypeError } from './transaction.errors';
+import { PrismaService } from '../../database/prisma.service';
+import { Prisma } from '../../generated/prisma/client.js';
+import { UnknownTransferTypeError } from '../domain/transaction';
 import type {
   NewPendingTransaction,
   OutboxMessageDraft,
   PersistedTransaction,
-  PendingTransactionWriter,
-} from './transaction.types';
+} from '../domain/transaction';
+import type { PendingTransactionWriter } from '../domain/transaction.ports';
 
 /** Codigo do Prisma para violacao de chave estrangeira. */
 const FOREIGN_KEY_VIOLATION = 'P2003';

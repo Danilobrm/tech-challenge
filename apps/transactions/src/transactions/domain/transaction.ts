@@ -34,25 +34,7 @@ export interface OutboxMessageDraft {
   occurredAt: Date;
 }
 
-/**
- * A porta recebe o construtor do evento em vez do evento pronto porque o
- * `transactionExternalId` so existe depois do insert — e ele precisa entrar no payload
- * dentro da mesma transacao, senao a outbox deixa de ser atomica com o agregado.
- */
-export interface PendingTransactionWriter {
-  savePending(
-    transaction: NewPendingTransaction,
-    describeCreation: (transactionExternalId: string) => OutboxMessageDraft,
-  ): Promise<PersistedTransaction>;
-}
-
-/**
- * O que aconteceu ao aplicar um resultado da antifraude. Os tres desfechos que nao sao
- * `applied` sao normais, e nao erro: entrega ao menos uma vez e reprocessamento de topico
- * fazem o mesmo evento chegar mais de uma vez.
- */
-export type StatusUpdateOutcome = 'applied' | 'duplicated' | 'ignored' | 'unknown-transaction';
-
+/** Resultado da antifraude, traduzido para o que o banco precisa gravar. */
 export interface TransactionResolutionUpdate {
   transactionExternalId: string;
   /// Chave da deduplicacao, junto com o id da transacao.
@@ -62,6 +44,20 @@ export interface TransactionResolutionUpdate {
   occurredAt: Date;
 }
 
-export interface TransactionStatusStore {
-  applyResolution(update: TransactionResolutionUpdate): Promise<StatusUpdateOutcome>;
+/**
+ * O que aconteceu ao aplicar um resultado. Os tres desfechos que nao sao `applied` sao
+ * normais, e nao erro: entrega ao menos uma vez e reprocessamento de topico fazem o mesmo
+ * evento chegar mais de uma vez.
+ */
+export type StatusUpdateOutcome = 'applied' | 'duplicated' | 'ignored' | 'unknown-transaction';
+
+/**
+ * Erro de dominio, nao de infraestrutura: o `transferTypeId` veio do cliente, entao a
+ * chave estrangeira quebrada e entrada invalida, e nao defeito do servico.
+ */
+export class UnknownTransferTypeError extends Error {
+  constructor(readonly transferTypeId: number) {
+    super(`Tipo de transferencia ${transferTypeId} nao existe`);
+    this.name = 'UnknownTransferTypeError';
+  }
 }

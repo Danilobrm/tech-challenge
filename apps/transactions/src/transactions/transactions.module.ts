@@ -3,12 +3,12 @@ import { Module } from '@nestjs/common';
 import { RandomIdGenerator, SystemClock } from '@challenge/messaging';
 
 import { DatabaseModule } from '../database/database.module';
-import { ApplyTransactionResolution } from './apply-transaction-resolution.service';
-import { CreateTransaction } from './create-transaction.service';
-import { PrismaPendingTransactionWriter } from './prisma-pending-transaction.writer';
-import { PrismaTransactionStatusStore } from './prisma-transaction-status.store';
-import { TransactionStatusHandler } from './transaction-status.handler';
-import { TransactionsController } from './transactions.controller';
+import { PrismaPendingTransactionWriter } from './adapters/prisma-pending-transaction.writer';
+import { PrismaTransactionStatusStore } from './adapters/prisma-transaction-status.store';
+import { TransactionStatusHandler } from './adapters/transaction-status.handler';
+import { TransactionsController } from './adapters/transactions.controller';
+import { ApplyTransactionResolution } from './application/apply-transaction-resolution';
+import { CreateTransaction } from './application/create-transaction';
 
 @Module({
   imports: [DatabaseModule],

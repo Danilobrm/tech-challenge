@@ -1,13 +1,13 @@
 import type { TransactionStatusUpdatedEvent } from '@challenge/contracts';
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import { ApplyTransactionResolution } from './apply-transaction-resolution.service';
+import { ApplyTransactionResolution } from './apply-transaction-resolution';
 import type {
   StatusUpdateOutcome,
   TransactionResolutionUpdate,
   TransactionStatusName,
-  TransactionStatusStore,
-} from './transaction.types';
+} from '../domain/transaction';
+import type { TransactionStatusStore } from '../domain/transaction.ports';
 
 const TRANSACTION_ID = '0199a2b1-6f4a-7c3d-8e1f-2a3b4c5d6e71';
 const EVENT_ID = '0199a2b1-6f4a-7c3d-8e1f-2a3b4c5d6eaa';

@@ -7,7 +7,9 @@ import {
 import type { CreateTransactionInput } from '@challenge/contracts';
 
 import type { Clock, IdGenerator } from '@challenge/messaging';
-import type { PersistedTransaction, PendingTransactionWriter } from './transaction.types';
+
+import type { PersistedTransaction } from '../domain/transaction';
+import type { PendingTransactionWriter } from '../domain/transaction.ports';
 
 export const TRANSACTION_AGGREGATE = 'transaction';
 

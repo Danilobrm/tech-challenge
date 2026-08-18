@@ -3,13 +3,13 @@ import type { CreateTransactionInput } from '@challenge/contracts';
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import type { Clock, IdGenerator } from '@challenge/messaging';
-import { CreateTransaction } from './create-transaction.service';
+import { CreateTransaction } from './create-transaction';
 import type {
   NewPendingTransaction,
   OutboxMessageDraft,
   PersistedTransaction,
-  PendingTransactionWriter,
-} from './transaction.types';
+} from '../domain/transaction';
+import type { PendingTransactionWriter } from '../domain/transaction.ports';
 
 const CREATED_AT = new Date('2026-08-18T12:00:00.000Z');
 const TRANSACTION_ID = '0199a2b1-6f4a-7c3d-8e1f-2a3b4c5d6e71';

@@ -2,9 +2,9 @@ import { BadRequestException, Body, Controller, HttpCode, HttpStatus, Post } fro
 import { createTransactionSchema } from '@challenge/contracts';
 import type { CreateTransactionInput } from '@challenge/contracts';
 
-import { ZodValidationPipe } from '../shared/zod-validation.pipe';
-import { CreateTransaction } from './create-transaction.service';
-import { UnknownTransferTypeError } from './transaction.errors';
+import { ZodValidationPipe } from '../../shared/zod-validation.pipe';
+import { CreateTransaction } from '../application/create-transaction';
+import { UnknownTransferTypeError } from '../domain/transaction';
 import { toTransactionView } from './transaction.presenter';
 import type { TransactionView } from './transaction.presenter';
 

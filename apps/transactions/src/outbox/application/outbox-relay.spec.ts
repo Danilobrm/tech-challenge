@@ -3,7 +3,11 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import type { Clock } from '@challenge/messaging';
 import type { JsonObject } from '@challenge/contracts';
 import { OutboxRelay } from './outbox-relay';
-import type { EventPublisher, PendingOutboxMessage, PendingOutboxStore } from './outbox.types';
+import type {
+  EventPublisher,
+  PendingOutboxMessage,
+  PendingOutboxStore,
+} from '../domain/outbox.ports';
 
 const PUBLISHED_AT = new Date('2026-08-18T12:00:05.000Z');
 

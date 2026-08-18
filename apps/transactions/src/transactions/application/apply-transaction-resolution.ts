@@ -1,6 +1,7 @@
 import type { TransactionStatusUpdatedEvent } from '@challenge/contracts';
 
-import type { StatusUpdateOutcome, TransactionStatusStore } from './transaction.types';
+import type { StatusUpdateOutcome } from '../domain/transaction';
+import type { TransactionStatusStore } from '../domain/transaction.ports';
 
 /**
  * Aplica o resultado da antifraude. Classe pura: traduz o evento para a escrita e devolve

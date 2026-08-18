@@ -1,8 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Interval } from '@nestjs/schedule';
 
-import { describeError } from '../shared/describe-error';
-import { OutboxRelay } from './outbox-relay';
+import { describeError } from '../../shared/describe-error';
+import { OutboxRelay } from '../application/outbox-relay';
 
 /**
  * Ritmo do worker. Fica no codigo, e nao no ambiente, porque `@Interval` e um decorator:
