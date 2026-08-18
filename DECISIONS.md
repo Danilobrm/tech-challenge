@@ -531,3 +531,83 @@ requisição** — e essa fronteira é deliberada, não descuido.
 - muda se: a API for exposta a cliente com retentativa automática — aplicativo móvel, SDK
   ou gateway com retry — ou se o valor deixar de ser exercício. Nesse cenário é o primeiro
   item a entrar, antes de DLQ e antes de `FOR UPDATE SKIP LOCKED`
+
+## `eventId` do resultado derivado do evento de origem
+
+**Decisão:** o `eventId` do `transaction.status.updated` é um uuid v5 sobre o `eventId` do
+`transaction.created` que o originou, com namespace fixo no código, em vez de um uuid
+aleatório por revisão.
+
+**Alternativas consideradas:**
+
+- manter o uuid aleatório e deduplicar por `transactionExternalId` no consumidor
+- reusar o `eventId` da criação como `eventId` do resultado
+- guardar no antifraude os eventos já revisados, para não revisar duas vezes
+- uuid v5 derivado, com a implementação vinda de uma dependência (`uuid`)
+
+**Por quê:**
+
+- a deduplicação é `@@unique([transactionId, eventId])`. Com id aleatório essa chave nunca
+  casa numa reentrega: o mesmo fato chega com identidade nova, entra no histórico como se
+  fosse novo, e o compare-and-set devolve `ignored` em silêncio
+- a reentrega não é hipótese: o handler deixa a exceção subir de propósito, o rebalance do
+  consumidor reprocessa o lote, e o `fromBeginning: true` num grupo novo reprocessa o
+  tópico inteiro de uma vez
+- deduplicar por `transactionExternalId` fecharia a porta para sempre — uma transação só
+  poderia ter uma transição na vida, o que quebra qualquer fluxo de reversão futuro
+- reusar o `eventId` da criação faria dois eventos diferentes carregarem a mesma
+  identidade; o envelope diz que `eventId` identifica a mensagem, não o assunto dela
+- estado no antifraude contraria a decisão de mantê-lo sem banco
+- a derivação são vinte linhas de SHA-1 sobre `node:crypto`, com vetor da RFC no teste; uma
+  dependência nova pesa mais que isso
+- muda se: o resultado passar a depender de algo além do evento de origem — política
+  versionada, consulta externa. Aí a origem deixa de determinar a saída e o id precisa
+  incluir essa outra entrada
+
+## Teto de tentativas na outbox, sem fila de mensagens mortas
+
+**Decisão:** `listPending` ignora mensagem com `attempts >= 5`, e a tentativa que atinge o
+teto é registrada em log de erro.
+
+**Alternativas consideradas:**
+
+- fila de mensagens mortas de verdade, em tabela ou tópico próprio
+- `nextAttemptAt` com recuo exponencial, em vez de teto
+- continuar sem teto, contando com o operador para notar a fila parada
+
+**Por quê:**
+
+- a coluna `attempts` já era escrita e nunca lida. Sem leitura, uma mensagem que não tem
+  como publicar — payload acima do `message.max.bytes`, tópico sem permissão — fica
+  pendente para sempre e, sendo a mais antiga, encabeça todo lote. Bastam
+  `OUTBOX_BATCH_SIZE` dessas para o lote inteiro virar veneno e nada mais ser publicado
+- o teto é uma linha de `WHERE`; recuo exponencial pede coluna nova e migração, e resolve o
+  caso da falha transitória, que a nova tentativa a cada segundo já resolve
+- fila de mensagens mortas é o destino certo, mas exige onde republicar e quem opera —
+  fora do escopo deste exercício. O log de erro é o mínimo para a mensagem não sumir calada
+- muda se: aparecer operação de verdade. Aí a mensagem esgotada vai para tabela própria com
+  reenvio manual, e o teto vira política dela
+
+## `fromStatus` nulo quando não houve transição
+
+**Decisão:** a linha do histórico grava `fromStatus: 'PENDING'` só quando o compare-and-set
+mudou a transação; quando não mudou, grava `null`.
+
+**Alternativas consideradas:**
+
+- manter `PENDING` fixo, como afirmação do que o evento presume
+- ler o status corrente dentro da transação e gravar o valor real
+- não gravar linha nenhuma quando o compare-and-set não encontra nada pendente
+
+**Por quê:**
+
+- `PENDING` fixo escreve no log append-only uma transição que não aconteceu, e nada na
+  linha a distingue da real. Log de auditoria que mente é pior que log ausente
+- ler o status antes de escrever é o `SELECT` seguido de `UPDATE` que a idempotência
+  proíbe; o resultado do próprio compare-and-set já responde a pergunta sem leitura extra
+- não gravar linha nenhuma quebraria a deduplicação, que depende de o evento estar
+  registrado para reconhecer a repetição
+- `null` já era o que a coluna admitia, e é a leitura honesta: o evento chegou, nenhuma
+  transição saiu dele
+- muda se: o histórico passar a ser a fonte da verdade do status corrente. Aí toda linha
+  precisa de origem conhecida, e a origem vira parte do que o compare-and-set devolve
