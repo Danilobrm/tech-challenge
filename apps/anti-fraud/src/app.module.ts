@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 
 import { validateEnv } from './config/env';
+import { FraudModule } from './fraud/fraud.module';
 import { HealthController } from './health/health.controller';
 
 @Module({
@@ -13,6 +14,7 @@ import { HealthController } from './health/health.controller';
       envFilePath: '../../.env',
       validate: validateEnv,
     }),
+    FraudModule,
   ],
   controllers: [HealthController],
 })

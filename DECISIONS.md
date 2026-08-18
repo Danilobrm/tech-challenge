@@ -268,3 +268,266 @@ o diretório está no `.gitignore`, e `postinstall` do pacote roda `prisma gener
   geração duas vezes a cada `pnpm quality`
 - o diretório entrou no ignore do ESLint e do Prettier pelo mesmo motivo: artefato gerado
   não é código nosso para lintar ou formatar
+
+## Outbox: o evento entra na mesma transação do agregado
+
+**Decisão:** o `POST /transactions` grava a `Transaction` e a linha da `OutboxMessage` numa
+única transação Prisma. Um worker com `@Interval` varre as pendentes, publica no Kafka e
+marca `publishedAt`.
+
+**Alternativas consideradas:**
+
+- publicar direto no Kafka logo após o commit do insert
+- publicar dentro da transação, antes do commit
+- CDC lendo o WAL do Postgres (Debezium) em vez de tabela de outbox
+
+**Por quê:**
+
+- gravar no banco e publicar no broker são duas escritas em dois sistemas sem transação
+  comum — é o dual write. Cair entre elas deixa transação que nunca será validada
+  (commit sem publish) ou evento sobre agregado que não existe (publish sem commit), e
+  nenhum dos dois estados é detectável depois
+- publicar antes do commit é pior: o rollback não desfaz a mensagem, e o antifraude passa
+  a responder sobre uma transação que nunca existiu
+- com a outbox só existe uma escrita transacional; a publicação vira um efeito derivado,
+  reexecutável, com a tabela como fila durável
+- o preço é entrega ao menos uma vez: cair entre o `publish` e o `markPublished` republica
+  no ciclo seguinte. É aceito de propósito, e tratado por deduplicação no consumidor
+- CDC eliminaria o worker e a tabela, mas acrescenta Debezium, Kafka Connect e um contrato
+  acoplado ao schema físico das tabelas — infraestrutura demais para dois eventos
+- muda se: o volume tornar o polling caro. O primeiro passo seria `FOR UPDATE SKIP LOCKED`
+  para permitir mais de uma instância do worker; CDC só depois disso
+
+## Idempotência em camadas, no banco e não no consumidor
+
+**Decisão:** três mecanismos empilhados no consumo de `transaction.status.updated`, todos
+dentro de uma transação: `@@unique([transactionId, eventId])` no histórico (com
+`skipDuplicates`, que vira `ON CONFLICT DO NOTHING`), a máquina de estados que só sai de
+`PENDING`, e `UPDATE ... WHERE id = ? AND status = 'PENDING'` como compare-and-set.
+
+**Alternativas consideradas:**
+
+- tabela dedicada de eventos processados, consultada antes de aplicar
+- `SELECT` da transação, decidir em memória, depois `UPDATE`
+- lock pessimista (`SELECT ... FOR UPDATE`) na linha da transação
+- cache de `eventId` já vistos em memória ou Redis
+
+**Por quê:**
+
+- cada camada cobre uma falha diferente: o unique cobre reentrega da mesma mensagem, o
+  compare-and-set cobre corrida entre consumidores, e a máquina de estados cobre evento
+  fora de ordem — nenhuma delas cobre as três sozinha
+- `SELECT` seguido de `UPDATE` tem uma janela entre a leitura e a escrita; com duas
+  instâncias consumindo, as duas leem `PENDING` e a segunda sobrescreve a decisão da
+  primeira. O compare-and-set fecha a janela dentro do próprio `UPDATE`
+- lock pessimista também resolveria, ao custo de segurar a linha até o fim da transação;
+  a contenção é desnecessária quando a escrita já é condicional
+- deduplicação em memória ou Redis é aproximada: reinício perde o estado e a fonte da
+  verdade passa a ser um sistema diferente do que guarda o dado
+- tabela separada de eventos processados seria uma escrita a mais para dizer o que o
+  histórico, que já é append-only, diz de graça
+- muda se: aparecerem transições além do par pendente → final. Aí a máquina de estados
+  deixa de caber no `WHERE` e vira código explícito antes da escrita
+
+## Chave de partição: `transactionExternalId`
+
+**Decisão:** todo evento é publicado com o id da transação como chave, e os tópicos são
+criados com três partições.
+
+**Alternativas consideradas:**
+
+- sem chave (round-robin entre as partições)
+- `accountExternalIdDebit` como chave, agrupando por conta
+- tópico com uma partição só, garantindo ordem global
+
+**Por quê:**
+
+- o Kafka só garante ordem dentro da partição. A chave é o que amarra todos os eventos de
+  uma transação à mesma partição, e portanto ao mesmo consumidor, em ordem
+- sem chave, criação e resultado da mesma transação podem cair em partições diferentes e
+  ser processados fora de ordem; a idempotência salvaria a consistência, mas por acidente
+- chave por conta daria ordem por conta e concentraria carga: conta movimentada vira
+  partição quente, e o paralelismo do consumidor fica limitado pela conta mais ativa
+- uma partição só daria ordem global ao custo de teto de paralelismo igual a um — é o
+  oposto do que a partição existe para resolver
+- três partições no compose local são arbitrárias, e é esse o ponto: com uma só, a ordem
+  global mascararia qualquer erro de chave
+- muda se: passar a existir evento que precise ser ordenado por conta, e não por
+  transação. Aí são dois tópicos com chaves diferentes, não uma chave que serve mal aos dois
+
+## Exactly-once do Kafka recusado, entrega ao menos uma vez com consumidor idempotente
+
+**Decisão:** produtor e consumidor comuns, sem transação do Kafka, sem
+`processing.guarantee=exactly_once`. A entrega é ao menos uma vez e a repetição é absorvida
+pela deduplicação no banco.
+
+**Alternativas consideradas:**
+
+- produtor idempotente com transações do Kafka e `read_committed` no consumidor
+- Kafka Streams com `exactly_once_v2`
+- deduplicação só por offset comitado, sem `eventId`
+
+**Por quê:**
+
+- o exactly-once do Kafka é exatamente-uma-vez **dentro do Kafka**: cobre o ciclo
+  consumir → produzir → comitar offset numa transação do broker. O efeito colateral que
+  importa aqui é um `UPDATE` no Postgres, que está fora dessa transação
+- fechar de verdade exigiria commit em duas fases entre Postgres e Kafka, ou um consumidor
+  que guardasse o offset na mesma transação do dado — muito mais máquina para chegar ao
+  mesmo lugar que o `eventId` já entrega
+- com a idempotência no banco, receber duas vezes é indistinguível de receber uma; o custo
+  é um índice único, não latência nem coordenação distribuída
+- confiar só no offset comitado não deduplica: o offset avança depois do efeito, e a queda
+  entre os dois é justamente o caso que produz a repetição
+- muda se: aparecer efeito colateral não idempotente e fora do banco — envio de e-mail,
+  chamada a gateway de pagamento. Aí a saída é uma tabela de efeitos aplicados, ainda no
+  Postgres, e não exactly-once no broker
+
+## Valor monetário como string decimal no evento
+
+**Decisão:** o `value` trafega no Kafka como `"1000.00"` — string com duas casas fixas —
+enquanto o corpo HTTP continua no formato do enunciado, número.
+
+**Alternativas consideradas:**
+
+- número JSON também no evento
+- inteiro em centavos no evento
+- dar Prisma ao antifraude, para ele ler o `Decimal` do banco
+
+**Por quê:**
+
+- a regra do antifraude é uma comparação de fronteira: `1000.00` aprova e `1000.01`
+  rejeita. Número JSON é binário IEEE-754 dos dois lados, e o limite passa a depender de
+  como cada serviço parseou o valor
+- o antifraude é stateless por decisão de arquitetura: não tem banco nem `Decimal` do
+  Prisma para reconstruir o valor. O que não vier exato no payload, ele não tem como
+  recuperar
+- duas casas fixas tornam a conversão para centavos um `replace('.', '')`, e `BigInt`
+  compara inteiro de qualquer tamanho sem biblioteca nova
+- centavos em inteiro seria igualmente exato, mas empurraria a divisão por 100 para toda
+  borda de leitura e criaria a classe de bug de esquecer de dividir
+- muda se: entrar valor com mais de duas casas decimais, como câmbio. A string continua
+  servindo; o que muda é a expressão regular do schema
+
+## Tópicos criados pela aplicação no arranque
+
+**Decisão:** os dois serviços chamam o admin do kafkajs no boot e criam os tópicos do
+fluxo com `waitForLeaders`, antes de o consumidor assinar.
+
+**Alternativas consideradas:**
+
+- confiar na criação automática do broker, que já está ligada no compose
+- criar os tópicos por um serviço de init no `docker-compose.yml`
+- documentar o comando `kafka-topics --create` como passo manual no README
+
+**Por quê:**
+
+- a criação automática acontece como efeito colateral da requisição de metadata: a
+  primeira responde `This server does not host this topic-partition` enquanto a partição
+  ainda não tem líder. O erro é retriável, o transporte do Nest não o retenta, e o processo
+  morre no boot — num clone limpo, o serviço simplesmente não sobe
+- o número de partições também deixa de ser acidente: a criação automática usa o padrão do
+  broker, que é uma partição, e a chave de partição passaria a não significar nada
+- serviço de init no compose resolveria o mesmo, mas põe o contrato do tópico na
+  infraestrutura, longe do código que depende dele — e exigiria mexer no `docker-compose.yml`
+- passo manual no README quebra o critério de subir sem perguntar nada
+- muda se: a criação de tópico passar a ser responsabilidade de plataforma, com política de
+  retenção e partições definidas fora da aplicação. Aí a chamada sai, e o serviço só falha
+  cedo se o tópico não existir
+
+## Camadas visíveis na árvore: `domain`, `application`, `adapters`
+
+**Decisão:** cada feature dos dois serviços tem três pastas — `domain/` (tipos, erros e
+portas, zero framework), `application/` (casos de uso puros, com os testes ao lado) e
+`adapters/` (HTTP, Kafka e Prisma).
+
+**Alternativas consideradas:**
+
+- arquivos planos dentro da pasta da feature, distinguidos só pelo sufixo do nome
+- fatias verticais por caso de uso: uma pasta `create/` e outra `resolve/`, cada uma com
+  regra e adaptador juntos
+- pasta `test/` separada, espelhando `src/`
+
+**Por quê:**
+
+- plano era o que estava antes: doze arquivos no mesmo nível misturando dois fluxos,
+  portas, presenter e módulo. Descobrir o que é regra pura e o que é adaptador exigia
+  abrir arquivo e ler import
+- a fronteira entre regra e adaptador é o que o desafio pede explicitamente; deixá-la
+  invisível na árvore é esconder justamente o que precisa ser defendido
+- fatia vertical agruparia bem por fluxo, mas dissolveria essa mesma fronteira: regra pura
+  e adaptador Prisma lado a lado, sem nada dizendo qual é qual
+- teste ao lado do código mantém visível quando um arquivo de regra não tem teste;
+  numa pasta espelhada, a ausência só aparece se alguém for procurar
+- três níveis é o teto: `adapters/` fica plano porque o sufixo do nome (`.controller`,
+  `.handler`, `prisma-`) já diz de que borda cada um é
+- muda se: uma feature crescer a ponto de `adapters/` passar de meia dúzia de arquivos.
+  Aí a subdivisão natural é por borda (`adapters/http`, `adapters/persistence`), não por
+  caso de uso
+
+## Fiação de mensageria num pacote compartilhado
+
+**Decisão:** `packages/messaging` concentra o produtor Kafka, o token de injeção, a
+criação dos tópicos e as duas dependências que carimbam toda mensagem — `Clock` e
+`IdGenerator`. Os dois serviços consomem por `KafkaProducerModule.forService(nome)`.
+
+**Alternativas consideradas:**
+
+- manter a fiação duplicada em cada serviço, preservando independência total
+- extrair só o publicador, deixando módulo e criação de tópicos em cada app
+- uma biblioteca Nest genérica de terceiros no lugar da fiação própria
+
+**Por quê:**
+
+- a duplicação era literal, não conceitual: `ensure-topics` e o arquivo de token tinham
+  zero linha de diferença, o módulo dez e o publicador dezessete — e a única diferença
+  real era o sufixo do `clientId`, que virou parâmetro
+- correção que só é aplicada num dos lados é o risco concreto aqui: os dois bugs desta
+  fase (o ciclo de importação do token e o tópico sem líder no boot) apareceram nos dois
+  serviços ao mesmo tempo, e tiveram que ser corrigidos duas vezes
+- o `EventPublisher` continua declarado como porta dentro do `outbox`: quem consome é que
+  define o contrato, e o pacote só oferece uma implementação que o satisfaz. Trocar Kafka
+  por outro transporte não encosta na regra
+- o preço é acoplamento de versão entre os serviços: subir a versão do transporte passa a
+  ser uma mudança que atinge os dois de uma vez
+- muda se: os serviços passarem a ser publicados e versionados separadamente. Aí o pacote
+  vira artefato versionado, e cada serviço escolhe quando adotar a versão nova
+
+## `POST /transactions` não é idempotente
+
+**Decisão:** a criação não tem `Idempotency-Key`. Duas requisições idênticas criam duas
+transações. A idempotência do sistema cobre **reentrega de evento**, não **repetição de
+requisição** — e essa fronteira é deliberada, não descuido.
+
+**Alternativas consideradas:**
+
+- `Idempotency-Key` no cabeçalho, com coluna única na tabela e devolução da transação já
+  criada quando a chave repete
+- deduplicar por conteúdo: mesmo débito, mesmo crédito, mesmo valor
+- deduplicar por conteúdo dentro de uma janela de tempo curta
+- chave de idempotência derivada do corpo, calculada no servidor
+
+**Por quê:**
+
+- a repetição do lado do evento é consequência que **nós criamos**: a outbox garante
+  entrega ao menos uma vez de propósito, então tratar a duplicata é obrigação de quem
+  escolheu o padrão. A repetição de HTTP vem de fora, do cliente, e exige cooperação dele
+- sem chave enviada pelo cliente, o servidor não tem como distinguir "é a mesma intenção
+  repetida" de "são duas intenções iguais": duas transferências de R$ 500 entre as mesmas
+  contas no mesmo minuto são caso de uso legítimo, não defeito
+- por isso deduplicar por conteúdo — com ou sem janela de tempo — é pior que não
+  deduplicar: transforma operação válida em erro silencioso, e o tamanho da janela é chute
+  sem critério. Chave derivada do corpo tem o mesmo problema, só que escondido
+- `Idempotency-Key` é a solução certa, e o desenho já está claro: coluna `idempotencyKey`
+  com `@unique`, tenta inserir, e na violação devolve a linha que ganhou a corrida. O
+  `catch` fica **fora** da `$transaction` — o Postgres aborta a transação no primeiro erro
+  e não aceitaria a leitura seguinte — o que é indolor porque a transação abortada não
+  gravou nada. É o mesmo raciocínio do compare-and-set: resolve a corrida sem lock
+- ficou de fora porque o enunciado não pede, não aparece em nenhum requisito, e o escopo
+  obrigatório inteiro vale mais que parte dele com sofisticação extra
+- traria duas decisões próprias que também precisariam de resposta: mesma chave com corpo
+  diferente deve responder 409, e não devolver silenciosamente a transação antiga; e a
+  chave precisa de prazo de validade, senão o índice cresce para sempre
+- muda se: a API for exposta a cliente com retentativa automática — aplicativo móvel, SDK
+  ou gateway com retry — ou se o valor deixar de ser exercício. Nesse cenário é o primeiro
+  item a entrar, antes de DLQ e antes de `FOR UPDATE SKIP LOCKED`

@@ -25,6 +25,14 @@ export default tseslint.config(
       ecmaVersion: 2023,
       sourceType: 'module',
       globals: { ...globals.node },
+      parserOptions: {
+        // O NestJS resolve as dependencias pelo `design:paramtypes` que o
+        // `emitDecoratorMetadata` emite. Sem saber disso, o `consistent-type-imports`
+        // exigiria `import type` no construtor de classe decorada — e o import apagado
+        // levaria junto o metadado que o container usa para injetar.
+        experimentalDecorators: true,
+        emitDecoratorMetadata: true,
+      },
     },
     rules: {
       // `any` e proibido pelo guia do repositorio: tipo pouco claro se resolve perguntando,
