@@ -7,6 +7,7 @@ import { Transport } from '@nestjs/microservices';
 import type { MicroserviceOptions } from '@nestjs/microservices';
 
 import type { Env } from './config/env';
+import { ensureFlowTopics } from './kafka/ensure-topics';
 import { AppModule } from './app.module';
 
 async function bootstrap(): Promise<void> {
@@ -14,6 +15,9 @@ async function bootstrap(): Promise<void> {
   const config = app.get(ConfigService<Env, true>);
   const port = config.get('ANTI_FRAUD_PORT', { infer: true });
   const clientId = config.get('KAFKA_CLIENT_ID', { infer: true });
+  const brokers = config.get('KAFKA_BROKERS', { infer: true }).split(',');
+
+  await ensureFlowTopics(clientId, brokers);
 
   // Aplicacao hibrida: o /health continua em HTTP, e o consumo de eventos entra pelo
   // transporte de microservico.
@@ -22,7 +26,7 @@ async function bootstrap(): Promise<void> {
     options: {
       client: {
         clientId: `${clientId}-anti-fraud`,
-        brokers: config.get('KAFKA_BROKERS', { infer: true }).split(','),
+        brokers,
       },
       consumer: { groupId: config.get('KAFKA_GROUP_ID_ANTI_FRAUD', { infer: true }) },
       // Do inicio do topico: sem isto, um grupo novo comeca no fim da fila e perde toda

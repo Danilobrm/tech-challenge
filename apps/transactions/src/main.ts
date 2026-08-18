@@ -7,6 +7,7 @@ import { Transport } from '@nestjs/microservices';
 import type { MicroserviceOptions } from '@nestjs/microservices';
 
 import type { Env } from './config/env';
+import { ensureFlowTopics } from './kafka/ensure-topics';
 import { AppModule } from './app.module';
 
 async function bootstrap(): Promise<void> {
@@ -14,6 +15,9 @@ async function bootstrap(): Promise<void> {
   const config = app.get(ConfigService<Env, true>);
   const port = config.get('TRANSACTIONS_PORT', { infer: true });
   const clientId = config.get('KAFKA_CLIENT_ID', { infer: true });
+  const brokers = config.get('KAFKA_BROKERS', { infer: true }).split(',');
+
+  await ensureFlowTopics(clientId, brokers);
 
   // Aplicacao hibrida: a API HTTP e o consumo do resultado da antifraude no mesmo
   // processo. O produtor da outbox tem cliente proprio, registrado no KafkaModule.
@@ -22,7 +26,7 @@ async function bootstrap(): Promise<void> {
     options: {
       client: {
         clientId: `${clientId}-transactions`,
-        brokers: config.get('KAFKA_BROKERS', { infer: true }).split(','),
+        brokers,
       },
       consumer: { groupId: config.get('KAFKA_GROUP_ID_TRANSACTIONS', { infer: true }) },
       // Do inicio do topico: um grupo novo comecando no fim perderia todo resultado
