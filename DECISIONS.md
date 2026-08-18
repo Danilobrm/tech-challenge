@@ -492,3 +492,42 @@ criação dos tópicos e as duas dependências que carimbam toda mensagem — `C
   ser uma mudança que atinge os dois de uma vez
 - muda se: os serviços passarem a ser publicados e versionados separadamente. Aí o pacote
   vira artefato versionado, e cada serviço escolhe quando adotar a versão nova
+
+## `POST /transactions` não é idempotente
+
+**Decisão:** a criação não tem `Idempotency-Key`. Duas requisições idênticas criam duas
+transações. A idempotência do sistema cobre **reentrega de evento**, não **repetição de
+requisição** — e essa fronteira é deliberada, não descuido.
+
+**Alternativas consideradas:**
+
+- `Idempotency-Key` no cabeçalho, com coluna única na tabela e devolução da transação já
+  criada quando a chave repete
+- deduplicar por conteúdo: mesmo débito, mesmo crédito, mesmo valor
+- deduplicar por conteúdo dentro de uma janela de tempo curta
+- chave de idempotência derivada do corpo, calculada no servidor
+
+**Por quê:**
+
+- a repetição do lado do evento é consequência que **nós criamos**: a outbox garante
+  entrega ao menos uma vez de propósito, então tratar a duplicata é obrigação de quem
+  escolheu o padrão. A repetição de HTTP vem de fora, do cliente, e exige cooperação dele
+- sem chave enviada pelo cliente, o servidor não tem como distinguir "é a mesma intenção
+  repetida" de "são duas intenções iguais": duas transferências de R$ 500 entre as mesmas
+  contas no mesmo minuto são caso de uso legítimo, não defeito
+- por isso deduplicar por conteúdo — com ou sem janela de tempo — é pior que não
+  deduplicar: transforma operação válida em erro silencioso, e o tamanho da janela é chute
+  sem critério. Chave derivada do corpo tem o mesmo problema, só que escondido
+- `Idempotency-Key` é a solução certa, e o desenho já está claro: coluna `idempotencyKey`
+  com `@unique`, tenta inserir, e na violação devolve a linha que ganhou a corrida. O
+  `catch` fica **fora** da `$transaction` — o Postgres aborta a transação no primeiro erro
+  e não aceitaria a leitura seguinte — o que é indolor porque a transação abortada não
+  gravou nada. É o mesmo raciocínio do compare-and-set: resolve a corrida sem lock
+- ficou de fora porque o enunciado não pede, não aparece em nenhum requisito, e o escopo
+  obrigatório inteiro vale mais que parte dele com sofisticação extra
+- traria duas decisões próprias que também precisariam de resposta: mesma chave com corpo
+  diferente deve responder 409, e não devolver silenciosamente a transação antiga; e a
+  chave precisa de prazo de validade, senão o índice cresce para sempre
+- muda se: a API for exposta a cliente com retentativa automática — aplicativo móvel, SDK
+  ou gateway com retry — ou se o valor deixar de ser exercício. Nesse cenário é o primeiro
+  item a entrar, antes de DLQ e antes de `FOR UPDATE SKIP LOCKED`
