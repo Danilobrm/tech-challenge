@@ -75,3 +75,100 @@ gate é encadeamento de scripts npm (`pnpm -r --if-present <script>`), sem Turbo
   classe pura e o handler é adaptador
 - muda se: for preciso controle fino de offset, `pause`/`resume` para backpressure ou
   estratégia própria de commit — aí o consumidor cru da `kafkajs` volta à mesa
+
+---
+
+## Esqueletos dos serviços Nest escritos à mão, sem `nest new`
+
+**Decisão:** os arquivos de `apps/transactions` e `apps/anti-fraud` (package.json,
+tsconfig, nest-cli.json, módulo e controller) foram escritos à mão, e cada app estende o
+`tsconfig.base.json` da raiz.
+
+**Alternativas consideradas:**
+
+- `nest new` em cada app, ajustando depois o que sobrasse
+- `nest new` em um app e cópia manual para o outro
+
+**Por quê:**
+
+- o `nest new` gera projeto standalone: ESLint, Prettier, `tsconfig` e Jest próprios — três
+  deles já existem na raiz, e o quarto é runner que o projeto decidiu não usar
+- limpar o que ele gera dá mais trabalho e deixa mais resíduo do que escrever os cinco
+  arquivos que de fato são necessários
+- o `apps/web` é o caso oposto: o `create-next-app` gera estrutura que o Next espera
+  (`next-env.d.ts`, `postcss.config.mjs`, App Router), e ali o resíduo se resume à config de
+  ESLint e ao README
+
+---
+
+## Um único `.env`, na raiz, validado com Zod no boot
+
+**Decisão:** existe um `.env` só, na raiz do repositório, criado com `cp .env.example .env`.
+Os dois apps Nest o carregam com `ConfigModule.forRoot({ envFilePath: '../../.env' })` e
+validam as variáveis obrigatórias com Zod; o `apps/web` carrega o mesmo arquivo no
+`next.config.ts` via `dotenv`, porque o Next só lê `.env` do diretório do próprio app.
+
+**Alternativas consideradas:**
+
+- um `.env` por app, cada um com o seu subconjunto
+- `.env` na raiz mais `.env` por app sobrescrevendo o que for específico
+
+**Por quê:**
+
+- o enunciado manda subir o projeto com um único `cp .env.example .env`; múltiplos arquivos
+  quebrariam esse passo ou exigiriam explicação no README
+- `DATABASE_URL` e `KAFKA_BROKERS` são os mesmos para quem publica e para quem consome —
+  duplicá-los cria a chance de divergirem em silêncio
+- validar com Zod no boot faz faltar variável virar erro na subida, com o nome do que
+  faltou, em vez de `undefined` chegando no cliente do Kafka
+- cada app valida só o que consome: o `anti-fraud` é stateless e não exige `DATABASE_URL`
+- muda se: os serviços forem para deploys independentes, onde cada um recebe o próprio
+  conjunto de variáveis do orquestrador — aí o arquivo único é substituído por variáveis de
+  ambiente injetadas, e o schema Zod continua valendo sem alteração
+
+---
+
+## Ordem do quality gate: `build` antes de `typecheck`
+
+**Decisão:** `pnpm quality` roda `lint`, `build`, `typecheck`, `format:check` e `test`,
+nessa ordem.
+
+**Alternativas consideradas:**
+
+- manter `typecheck` antes de `build`, e gerar os tipos faltantes em algum passo anterior
+- referências de projeto do TypeScript (`composite` + `tsc -b`) entre os pacotes
+
+**Por quê:**
+
+- `packages/contracts` é consumido pelos apps através do seu `dist`, e o `apps/web` só tem
+  os tipos de rota do Next (`.next/types`) depois de um build — checar tipos antes de
+  construir falharia por artefato ausente, não por erro de tipo
+- referências de projeto resolveriam a ordem de forma declarativa, mas exigem `composite`
+  em todos os pacotes e não cobrem os tipos gerados pelo Next
+- o custo é baixo: o `build` é incremental e o `typecheck` seguinte reaproveita o mesmo
+  `tsconfig`
+
+---
+
+## Dois comandos para subir o projeto: `pnpm setup` e `pnpm dev`
+
+**Decisão:** a raiz expõe `setup` (instala, constrói `contracts` e roda migration e seed) e
+`dev` (`pnpm -r --parallel dev`, que sobe os três apps em um processo só).
+
+**Alternativas consideradas:**
+
+- documentar no README os comandos por app, um terminal para cada
+- Turborepo ou concurrently orquestrando os processos de desenvolvimento
+- incluir `docker compose up -d --wait` dentro do `setup`
+
+**Por quê:**
+
+- quem clona precisa conseguir subir tudo sem descobrir a ordem certa; três terminais e
+  quatro comandos são três chances de errar a ordem
+- `pnpm -r --parallel` já entrega o que `concurrently` daria, sem dependência nova, e prefixa
+  a saída com o nome do pacote
+- `docker compose` ficou fora do `setup` de propósito: subir container é passo com efeito na
+  máquina de quem avalia, e mistura infraestrutura com preparação do código — ele continua
+  explícito no README, antes do `setup`
+- `setup` constrói o `contracts` porque os apps o consomem pelo `dist`; sem isso o `dev`
+  falharia na resolução do import num clone zerado
