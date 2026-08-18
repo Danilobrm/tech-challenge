@@ -172,3 +172,99 @@ nessa ordem.
   explícito no README, antes do `setup`
 - `setup` constrói o `contracts` porque os apps o consomem pelo `dist`; sem isso o `dev`
   falharia na resolução do import num clone zerado
+
+---
+
+## Status corrente na tabela da transação, mais log append-only das transições
+
+**Decisão:** `Transaction.status` guarda o estado corrente denormalizado, e
+`TransactionStatusHistory` guarda uma linha por transição, append-only, com `fromStatus`,
+`toStatus`, `reason`, `eventId`, `metadata` e `occurredAt`. Nem só o campo, nem só o log.
+
+**Alternativas consideradas:**
+
+- só a coluna `status`, sem histórico — o mais simples que atende o contrato do enunciado
+- event sourcing puro: o log de eventos é a fonte da verdade e o status é derivado por
+  replay, com projeção de leitura reconstruída a partir dele
+- tabela de histórico com update na linha corrente (`valid_from` / `valid_to`) em vez de
+  append-only
+
+**Por quê:**
+
+- a leitura dominante do sistema é "qual o status desta transação" e "liste as pendentes":
+  com o campo denormalizado é um índice `[status, createdAt]`; com replay seria agregação
+  por transação a cada consulta
+- o histórico não é enfeite — é o que dá auditoria da decisão do antifraude (`reason`,
+  `metadata`) e é onde mora o `@@unique([transactionId, eventId])` que deduplica reentrega
+  do Kafka; sem ele, a idempotência teria que virar tabela separada de eventos processados
+- event sourcing puro cobraria projeções, versionamento de evento e replay para um domínio
+  de três estados e uma transição possível: custo de infraestrutura sem ganho de modelo
+- append-only mantém a tabela livre de update e delete, então concorrência no histórico se
+  resolve por insert e constraint, não por lock
+- a escolha mudaria se o domínio ganhasse muitos estados, correção retroativa de eventos ou
+  exigência regulatória de reconstruir o estado em qualquer instante do passado — aí o log
+  vira fonte da verdade e o campo vira projeção mantida por um projetor
+
+## Valor monetário em `Decimal(18,2)`, nunca `Float`
+
+**Decisão:** `Transaction.value` é `Decimal @db.Decimal(18, 2)`, mapeado para `NUMERIC(18,2)`
+no Postgres.
+
+**Alternativas consideradas:**
+
+- `Float` (`DOUBLE PRECISION`), que é o tipo mais direto para um campo numérico
+- inteiro em centavos (`BigInt`), evitando decimal no banco e na aplicação
+
+**Por quê:**
+
+- `Float` é binário IEEE-754: `0.1 + 0.2` não dá `0.3`, e soma de valores acumula erro que
+  aparece em relatório e conciliação — para dinheiro isso é defeito, não arredondamento
+- a regra do desafio é uma comparação de fronteira (`value > 1000` rejeita, `1000` exato
+  aprova); com binário de ponto flutuante o valor limite depende de como o número foi
+  parseado, e o teste do limite exato vira loteria
+- `NUMERIC` é decimal exato no Postgres, e o Prisma devolve `Decimal` no client, o que
+  impede que o valor vire `number` de JavaScript por descuido no caminho
+- centavos em inteiro também seria exato, mas empurra a conversão para toda borda de entrada
+  e saída (API, evento Kafka, tela) e cria uma classe nova de bug: esquecer de dividir
+- `18,2` cobre valor com 16 dígitos inteiros; mudaria se o domínio passasse a exigir mais
+  casas decimais, como câmbio ou juros intradiários
+
+## Nomes `snake_case` no banco, `camelCase` no client, via `@map`
+
+**Decisão:** cada modelo e campo tem `@@map` / `@map` para `snake_case`; o schema Prisma
+segue `camelCase` e é o que a aplicação enxerga.
+
+**Alternativas consideradas:**
+
+- deixar o padrão do Prisma, com tabela `Transaction` e coluna `accountExternalIdDebit`
+- `snake_case` também no schema Prisma, alinhando os dois lados pelo banco
+
+**Por quê:**
+
+- identificador com maiúscula no Postgres só sobrevive entre aspas: `select * from
+Transaction` falha, e todo SQL manual — psql, dump, plano de execução — vira campo minado
+- a aplicação é TypeScript e `camelCase` é o que o resto do código já usa; alinhar o schema
+  ao banco contaminaria o código de aplicação com a convenção do armazenamento
+- o custo é uma linha por campo, escrita uma vez e verificada pela migration
+
+## Client do Prisma gerado no `postinstall`, não versionado
+
+**Decisão:** o generator `prisma-client` emite em `apps/transactions/src/generated/prisma`,
+o diretório está no `.gitignore`, e `postinstall` do pacote roda `prisma generate`.
+
+**Alternativas consideradas:**
+
+- versionar o client gerado, para o clone typechecar sem passo extra
+- rodar `prisma generate` dentro dos scripts `build` e `typecheck`
+- deixar o `generate` só no README, como passo manual antes do primeiro build
+
+**Por quê:**
+
+- o Prisma 7 emite TypeScript num diretório do projeto, não mais dentro de `node_modules`:
+  são ~360 KB de código gerado que entrariam em todo diff e todo conflito de merge
+- sem gerar, `typecheck` e `build` quebram num clone limpo, então o passo não pode ser
+  manual — em CI ele tem que acontecer sozinho
+- `postinstall` roda uma vez por install; embutir no `build` e no `typecheck` custaria a
+  geração duas vezes a cada `pnpm quality`
+- o diretório entrou no ignore do ESLint e do Prettier pelo mesmo motivo: artefato gerado
+  não é código nosso para lintar ou formatar
