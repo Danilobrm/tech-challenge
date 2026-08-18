@@ -1,3 +1,10 @@
 packages:
   - 'apps/*'
   - 'packages/*'
+
+# Postinstall liberado apenas para o que precisa baixar/compilar binario proprio:
+# os engines do Prisma e o esbuild que o tsx usa.
+allowBuilds:
+  '@prisma/engines': true
+  esbuild: true
+  prisma: true
