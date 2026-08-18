@@ -7,13 +7,15 @@
     "node": ">=22 <23"
   },
   "scripts": {
+    "setup": "pnpm install && pnpm --filter @challenge/contracts build && pnpm --filter @challenge/transactions run --if-present db:migrate && pnpm --filter @challenge/transactions run --if-present db:seed",
+    "dev": "pnpm -r --parallel dev",
     "lint": "eslint .",
     "typecheck": "pnpm -r --if-present typecheck",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "vitest run --passWithNoTests",
     "build": "pnpm -r --if-present build",
-    "quality": "pnpm lint && pnpm typecheck && pnpm format:check && pnpm test && pnpm build",
+    "quality": "pnpm lint && pnpm build && pnpm typecheck && pnpm format:check && pnpm test",
     "prepare": "husky"
   },
   "devDependencies": {

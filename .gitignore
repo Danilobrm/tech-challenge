@@ -31,3 +31,7 @@ pnpm-debug.log*
 .idea/
 .vscode/*
 !.vscode/extensions.json
+
+# instrucoes para agentes, recriadas pelo `next dev` a cada subida
+apps/web/AGENTS.md
+apps/web/CLAUDE.md
