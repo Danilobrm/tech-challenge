@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 
 import { PrismaService } from '../database/prisma.service';
-import type { JsonObject } from '../transactions/transaction.types';
+import type { JsonObject } from '@challenge/contracts';
 import type { PendingOutboxMessage, PendingOutboxStore } from './outbox.types';
 
 /**

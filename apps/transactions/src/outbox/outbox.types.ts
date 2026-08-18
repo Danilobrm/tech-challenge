@@ -1,4 +1,4 @@
-import type { JsonObject } from '../transactions/transaction.types';
+import type { JsonObject } from '@challenge/contracts';
 
 export interface PendingOutboxMessage {
   id: string;

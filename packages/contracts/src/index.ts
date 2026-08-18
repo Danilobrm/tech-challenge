@@ -6,6 +6,7 @@
  */
 
 export * from './events/envelope';
+export * from './events/json';
 export * from './events/monetary-amount';
 export * from './events/topics';
 export * from './events/transaction-created';

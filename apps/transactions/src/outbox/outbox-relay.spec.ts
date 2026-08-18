@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import type { Clock } from '../shared/clock';
-import type { JsonObject } from '../transactions/transaction.types';
+import type { JsonObject } from '@challenge/contracts';
 import { OutboxRelay } from './outbox-relay';
 import type { EventPublisher, PendingOutboxMessage, PendingOutboxStore } from './outbox.types';
 

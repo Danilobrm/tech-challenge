@@ -1,4 +1,4 @@
-import type { MonetaryAmount } from '@challenge/contracts';
+import type { JsonObject, MonetaryAmount } from '@challenge/contracts';
 
 export type TransactionStatusName = 'PENDING' | 'APPROVED' | 'REJECTED';
 
@@ -19,15 +19,6 @@ export interface PersistedTransaction {
   value: MonetaryAmount;
   createdAt: Date;
 }
-
-/**
- * Payload do evento no vocabulario do dominio. Tipado como JSON, e nao como
- * `Record<string, unknown>`, porque a coluna e `jsonb`: o que nao serializa nao pode
- * chegar ate aqui.
- */
-export type JsonValue =
-  string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
-export type JsonObject = { [key: string]: JsonValue };
 
 /** Linha da outbox pronta para ser gravada junto do agregado. */
 export interface OutboxMessageDraft {

@@ -14,3 +14,21 @@ export const monetaryAmountSchema = z.string().regex(/^\d{1,16}\.\d{2}$/, {
 });
 
 export type MonetaryAmount = z.infer<typeof monetaryAmountSchema>;
+
+/**
+ * Compara dois valores monetarios sem passar por ponto flutuante. Duas casas fixas fazem
+ * de `replace('.', '')` a conversao exata para centavos, e `BigInt` compara inteiro.
+ *
+ * Existe porque a regra da antifraude e uma comparacao de fronteira: com `Number`, o
+ * limite exato dependeria de como cada lado parseou o numero.
+ */
+export function compareMonetaryAmounts(left: MonetaryAmount, right: MonetaryAmount): number {
+  const leftInCents = BigInt(left.replace('.', ''));
+  const rightInCents = BigInt(right.replace('.', ''));
+
+  if (leftInCents === rightInCents) {
+    return 0;
+  }
+
+  return leftInCents > rightInCents ? 1 : -1;
+}

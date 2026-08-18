@@ -5,7 +5,7 @@ import { firstValueFrom } from 'rxjs';
 
 import { KAFKA_PRODUCER } from './kafka.module';
 import type { EventPublisher } from '../outbox/outbox.types';
-import type { JsonObject } from '../transactions/transaction.types';
+import type { JsonObject } from '@challenge/contracts';
 
 @Injectable()
 export class KafkaEventPublisher implements EventPublisher, OnModuleInit, OnApplicationShutdown {
