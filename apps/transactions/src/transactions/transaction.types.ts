@@ -1,4 +1,9 @@
-import type { JsonObject, MonetaryAmount } from '@challenge/contracts';
+import type {
+  JsonObject,
+  MonetaryAmount,
+  TransactionResolution,
+  TransactionResolutionReason,
+} from '@challenge/contracts';
 
 export type TransactionStatusName = 'PENDING' | 'APPROVED' | 'REJECTED';
 
@@ -39,4 +44,24 @@ export interface PendingTransactionWriter {
     transaction: NewPendingTransaction,
     describeCreation: (transactionExternalId: string) => OutboxMessageDraft,
   ): Promise<PersistedTransaction>;
+}
+
+/**
+ * O que aconteceu ao aplicar um resultado da antifraude. Os tres desfechos que nao sao
+ * `applied` sao normais, e nao erro: entrega ao menos uma vez e reprocessamento de topico
+ * fazem o mesmo evento chegar mais de uma vez.
+ */
+export type StatusUpdateOutcome = 'applied' | 'duplicated' | 'ignored' | 'unknown-transaction';
+
+export interface TransactionResolutionUpdate {
+  transactionExternalId: string;
+  /// Chave da deduplicacao, junto com o id da transacao.
+  eventId: string;
+  toStatus: TransactionResolution;
+  reason: TransactionResolutionReason;
+  occurredAt: Date;
+}
+
+export interface TransactionStatusStore {
+  applyResolution(update: TransactionResolutionUpdate): Promise<StatusUpdateOutcome>;
 }

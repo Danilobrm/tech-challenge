@@ -18,7 +18,9 @@ export const KAFKA_PRODUCER = 'KAFKA_PRODUCER';
           transport: Transport.KAFKA,
           options: {
             client: {
-              clientId: config.get('KAFKA_CLIENT_ID', { infer: true }),
+              // Sufixo por servico: os dois compartilham o KAFKA_CLIENT_ID do ambiente, e
+              // sem isso o Kafka UI mostra os dois produtores com o mesmo nome.
+              clientId: `${config.get('KAFKA_CLIENT_ID', { infer: true })}-transactions-producer`,
               brokers: config.get('KAFKA_BROKERS', { infer: true }).split(','),
             },
             // Este servico so publica por `emit`. Sem isto o cliente ainda sobe um
