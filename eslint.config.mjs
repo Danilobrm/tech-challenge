@@ -11,6 +11,8 @@ export default tseslint.config(
       '**/build/**',
       '**/.next/**',
       '**/coverage/**',
+      // client do Prisma: artefato gerado, reescrito a cada `prisma generate`
+      'apps/transactions/src/generated/**',
       '**/*.d.ts',
     ],
   },
