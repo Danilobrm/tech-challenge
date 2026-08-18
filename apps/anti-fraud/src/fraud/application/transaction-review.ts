@@ -5,7 +5,7 @@ import {
 } from '@challenge/contracts';
 import type { TransactionCreatedEvent, TransactionStatusUpdatedEvent } from '@challenge/contracts';
 
-import type { Clock, IdGenerator } from '@challenge/messaging';
+import type { Clock, DerivedIdGenerator } from '@challenge/messaging';
 import type { TransactionFraudRule } from '../domain/fraud-rule';
 
 /**
@@ -17,14 +17,16 @@ export class TransactionReview {
   constructor(
     private readonly rule: TransactionFraudRule,
     private readonly clock: Clock,
-    private readonly ids: IdGenerator,
+    private readonly ids: DerivedIdGenerator,
   ) {}
 
   review(event: TransactionCreatedEvent): TransactionStatusUpdatedEvent {
     const decision = this.rule.evaluate(event.data.value);
 
     return transactionStatusUpdatedEventSchema.parse({
-      eventId: this.ids.next(),
+      // Derivado do evento de origem, nao sorteado: a reentrega da criacao precisa
+      // produzir o mesmo `eventId` para que a deduplicacao do consumidor a reconheca.
+      eventId: this.ids.derive(event.eventId),
       eventType: TRANSACTION_STATUS_UPDATED,
       version: TRANSACTION_STATUS_UPDATED_VERSION,
       // Hora da decisao, que e o fato que este evento carrega.

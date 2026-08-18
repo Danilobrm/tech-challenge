@@ -2,12 +2,13 @@ import { transactionStatusUpdatedEventSchema } from '@challenge/contracts';
 import type { TransactionCreatedEvent } from '@challenge/contracts';
 import { describe, expect, it } from 'vitest';
 
-import type { Clock, IdGenerator } from '@challenge/messaging';
+import type { Clock } from '@challenge/messaging';
+import { UuidV5IdGenerator } from '@challenge/messaging';
 import { TransactionFraudRule } from '../domain/fraud-rule';
 import { TransactionReview } from './transaction-review';
 
 const DECIDED_AT = new Date('2026-08-18T12:00:03.000Z');
-const NEW_EVENT_ID = '0199a2b1-6f4a-7c3d-8e1f-2a3b4c5d6eaa';
+const ID_NAMESPACE = '0199a2b1-6f4a-7c3d-8e1f-2a3b4c5d6e00';
 const CORRELATION_ID = '0199a2b1-6f4a-7c3d-8e1f-2a3b4c5d6e70';
 const TRANSACTION_ID = '0199a2b1-6f4a-7c3d-8e1f-2a3b4c5d6e71';
 
@@ -30,7 +31,9 @@ function createdEvent(value: string): TransactionCreatedEvent {
 
 function buildReview(): TransactionReview {
   const clock: Clock = { now: () => DECIDED_AT };
-  const ids: IdGenerator = { next: () => NEW_EVENT_ID };
+  // Gerador real, e nao um dublê: o que esta sob teste e a estabilidade do id entre
+  // instancias, que so aparece com a derivacao de verdade.
+  const ids = new UuidV5IdGenerator(ID_NAMESPACE);
 
   return new TransactionReview(new TransactionFraudRule(), clock, ids);
 }
@@ -62,12 +65,19 @@ describe('TransactionReview', () => {
     expect(result.correlationId).toBe(CORRELATION_ID);
   });
 
-  it('gera identidade propria para o evento de resultado', () => {
+  it('tem identidade propria, separada da criacao que a originou', () => {
     const created = createdEvent('120.00');
     const result = buildReview().review(created);
 
-    expect(result.eventId).toBe(NEW_EVENT_ID);
     expect(result.eventId).not.toBe(created.eventId);
+  });
+
+  it('repete a mesma identidade quando a criacao e reentregue', () => {
+    const created = createdEvent('120.00');
+
+    // Reentrega do mesmo evento por instancias diferentes: id igual e o que faz a
+    // deduplicacao do consumidor enxergar repeticao em vez de um segundo resultado.
+    expect(buildReview().review(created).eventId).toBe(buildReview().review(created).eventId);
   });
 
   it('registra a hora da decisao, e nao a da criacao', () => {
