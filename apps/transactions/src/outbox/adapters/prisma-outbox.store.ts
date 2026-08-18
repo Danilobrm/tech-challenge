@@ -1,8 +1,16 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 
 import { PrismaService } from '../../database/prisma.service';
 import type { JsonObject } from '@challenge/contracts';
 import type { PendingOutboxMessage, PendingOutboxStore } from '../domain/outbox.ports';
+
+/**
+ * Teto de tentativas por mensagem. Sem ele, uma mensagem que nunca vai publicar — payload
+ * grande demais para o broker, topico sem permissao — fica pendente para sempre e, por ser
+ * a mais antiga, encabeca todo lote: um punhado delas bastaria para segurar a fila inteira
+ * e travar a publicacao de tudo o que vem depois.
+ */
+export const OUTBOX_MAX_ATTEMPTS = 5;
 
 /**
  * Fronteira entre a coluna `jsonb` e o dominio: o banco devolve qualquer JSON, e o worker
@@ -19,11 +27,13 @@ function asJsonObject(value: unknown): JsonObject {
 
 @Injectable()
 export class PrismaOutboxStore implements PendingOutboxStore {
+  private readonly logger = new Logger(PrismaOutboxStore.name);
+
   constructor(private readonly prisma: PrismaService) {}
 
   async listPending(limit: number): Promise<PendingOutboxMessage[]> {
     const messages = await this.prisma.outboxMessage.findMany({
-      where: { publishedAt: null },
+      where: { publishedAt: null, attempts: { lt: OUTBOX_MAX_ATTEMPTS } },
       // Pela hora do fato, nao pela hora da insercao: e a ordem em que o dominio aconteceu.
       orderBy: { occurredAt: 'asc' },
       take: limit,
@@ -47,9 +57,17 @@ export class PrismaOutboxStore implements PendingOutboxStore {
   }
 
   async markFailed(id: string, error: string): Promise<void> {
-    await this.prisma.outboxMessage.update({
+    const failed = await this.prisma.outboxMessage.update({
       where: { id },
       data: { attempts: { increment: 1 }, lastError: error },
     });
+
+    if (failed.attempts >= OUTBOX_MAX_ATTEMPTS) {
+      // Ultima linha antes do silencio: a partir daqui a mensagem nao volta ao lote, e sem
+      // este registro ela sumiria sem ninguem notar.
+      this.logger.error(
+        `Mensagem ${id} da outbox esgotou as ${OUTBOX_MAX_ATTEMPTS} tentativas e saiu do lote: ${error}`,
+      );
+    }
   }
 }
