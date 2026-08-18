@@ -6,7 +6,7 @@ import {
 import type { TransactionCreatedEvent, TransactionStatusUpdatedEvent } from '@challenge/contracts';
 
 import type { Clock, IdGenerator } from '@challenge/messaging';
-import type { TransactionFraudRule } from './fraud-rule';
+import type { TransactionFraudRule } from '../domain/fraud-rule';
 
 /**
  * Traduz o evento de criacao no evento de resultado. Puro: recebe um evento, devolve

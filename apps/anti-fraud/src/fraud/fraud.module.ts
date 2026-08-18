@@ -2,9 +2,9 @@ import { Module } from '@nestjs/common';
 
 import { KafkaProducerModule, RandomIdGenerator, SystemClock } from '@challenge/messaging';
 
-import { TransactionFraudRule } from './fraud-rule';
-import { TransactionCreatedHandler } from './transaction-created.handler';
-import { TransactionReview } from './transaction-review';
+import { TransactionCreatedHandler } from './adapters/transaction-created.handler';
+import { TransactionReview } from './application/transaction-review';
+import { TransactionFraudRule } from './domain/fraud-rule';
 
 @Module({
   imports: [KafkaProducerModule.forService('anti-fraud')],

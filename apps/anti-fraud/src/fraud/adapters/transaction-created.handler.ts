@@ -7,7 +7,7 @@ import {
 } from '@challenge/contracts';
 
 import { KafkaEventPublisher } from '@challenge/messaging';
-import { TransactionReview } from './transaction-review';
+import { TransactionReview } from '../application/transaction-review';
 
 /**
  * Adaptador fino do Kafka: valida o payload, delega a decisao e publica o resultado.

@@ -3,7 +3,7 @@ import type { TransactionCreatedEvent } from '@challenge/contracts';
 import { describe, expect, it } from 'vitest';
 
 import type { Clock, IdGenerator } from '@challenge/messaging';
-import { TransactionFraudRule } from './fraud-rule';
+import { TransactionFraudRule } from '../domain/fraud-rule';
 import { TransactionReview } from './transaction-review';
 
 const DECIDED_AT = new Date('2026-08-18T12:00:03.000Z');
