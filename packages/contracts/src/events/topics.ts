@@ -4,3 +4,6 @@
  */
 export const TRANSACTION_CREATED = 'transaction.created';
 export const TRANSACTION_STATUS_UPDATED = 'transaction.status.updated';
+
+/** Os topicos que precisam existir para o fluxo fechar. */
+export const FLOW_TOPICS = [TRANSACTION_CREATED, TRANSACTION_STATUS_UPDATED];

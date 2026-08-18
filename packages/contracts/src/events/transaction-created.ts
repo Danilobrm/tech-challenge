@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 import { eventEnvelopeShape } from './envelope';
-import { monetaryAmountSchema } from './monetary-amount';
+import { monetaryAmountSchema } from '../shared/monetary-amount';
 import { TRANSACTION_CREATED } from './topics';
 
 export const TRANSACTION_CREATED_VERSION = 1;

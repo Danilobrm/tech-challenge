@@ -5,10 +5,12 @@
  * compilacao no monorepo, em vez de mensagem descartada em runtime.
  */
 
+export * from './shared/json';
+export * from './shared/monetary-amount';
+
 export * from './events/envelope';
-export * from './events/json';
-export * from './events/monetary-amount';
 export * from './events/topics';
 export * from './events/transaction-created';
 export * from './events/transaction-status-updated';
+
 export * from './http/create-transaction';

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import type { MonetaryAmount } from '../events/monetary-amount';
+import type { MonetaryAmount } from '../shared/monetary-amount';
 
 /**
  * Teto do valor aceito na entrada. O `NUMERIC(18,2)` do banco comporta mais, mas o corpo
