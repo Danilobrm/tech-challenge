@@ -434,3 +434,61 @@ fluxo com `waitForLeaders`, antes de o consumidor assinar.
 - muda se: a criação de tópico passar a ser responsabilidade de plataforma, com política de
   retenção e partições definidas fora da aplicação. Aí a chamada sai, e o serviço só falha
   cedo se o tópico não existir
+
+## Camadas visíveis na árvore: `domain`, `application`, `adapters`
+
+**Decisão:** cada feature dos dois serviços tem três pastas — `domain/` (tipos, erros e
+portas, zero framework), `application/` (casos de uso puros, com os testes ao lado) e
+`adapters/` (HTTP, Kafka e Prisma).
+
+**Alternativas consideradas:**
+
+- arquivos planos dentro da pasta da feature, distinguidos só pelo sufixo do nome
+- fatias verticais por caso de uso: uma pasta `create/` e outra `resolve/`, cada uma com
+  regra e adaptador juntos
+- pasta `test/` separada, espelhando `src/`
+
+**Por quê:**
+
+- plano era o que estava antes: doze arquivos no mesmo nível misturando dois fluxos,
+  portas, presenter e módulo. Descobrir o que é regra pura e o que é adaptador exigia
+  abrir arquivo e ler import
+- a fronteira entre regra e adaptador é o que o desafio pede explicitamente; deixá-la
+  invisível na árvore é esconder justamente o que precisa ser defendido
+- fatia vertical agruparia bem por fluxo, mas dissolveria essa mesma fronteira: regra pura
+  e adaptador Prisma lado a lado, sem nada dizendo qual é qual
+- teste ao lado do código mantém visível quando um arquivo de regra não tem teste;
+  numa pasta espelhada, a ausência só aparece se alguém for procurar
+- três níveis é o teto: `adapters/` fica plano porque o sufixo do nome (`.controller`,
+  `.handler`, `prisma-`) já diz de que borda cada um é
+- muda se: uma feature crescer a ponto de `adapters/` passar de meia dúzia de arquivos.
+  Aí a subdivisão natural é por borda (`adapters/http`, `adapters/persistence`), não por
+  caso de uso
+
+## Fiação de mensageria num pacote compartilhado
+
+**Decisão:** `packages/messaging` concentra o produtor Kafka, o token de injeção, a
+criação dos tópicos e as duas dependências que carimbam toda mensagem — `Clock` e
+`IdGenerator`. Os dois serviços consomem por `KafkaProducerModule.forService(nome)`.
+
+**Alternativas consideradas:**
+
+- manter a fiação duplicada em cada serviço, preservando independência total
+- extrair só o publicador, deixando módulo e criação de tópicos em cada app
+- uma biblioteca Nest genérica de terceiros no lugar da fiação própria
+
+**Por quê:**
+
+- a duplicação era literal, não conceitual: `ensure-topics` e o arquivo de token tinham
+  zero linha de diferença, o módulo dez e o publicador dezessete — e a única diferença
+  real era o sufixo do `clientId`, que virou parâmetro
+- correção que só é aplicada num dos lados é o risco concreto aqui: os dois bugs desta
+  fase (o ciclo de importação do token e o tópico sem líder no boot) apareceram nos dois
+  serviços ao mesmo tempo, e tiveram que ser corrigidos duas vezes
+- o `EventPublisher` continua declarado como porta dentro do `outbox`: quem consome é que
+  define o contrato, e o pacote só oferece uma implementação que o satisfaz. Trocar Kafka
+  por outro transporte não encosta na regra
+- o preço é acoplamento de versão entre os serviços: subir a versão do transporte passa a
+  ser uma mudança que atinge os dois de uma vez
+- muda se: os serviços passarem a ser publicados e versionados separadamente. Aí o pacote
+  vira artefato versionado, e cada serviço escolhe quando adotar a versão nova
