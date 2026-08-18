@@ -1,8 +1,8 @@
 import { Module } from '@nestjs/common';
 
+import { RandomIdGenerator, SystemClock } from '@challenge/messaging';
+
 import { DatabaseModule } from '../database/database.module';
-import { SystemClock } from '../shared/clock';
-import { RandomIdGenerator } from '../shared/id-generator';
 import { ApplyTransactionResolution } from './apply-transaction-resolution.service';
 import { CreateTransaction } from './create-transaction.service';
 import { PrismaPendingTransactionWriter } from './prisma-pending-transaction.writer';

@@ -1,5 +1,5 @@
 import { describeError } from '../shared/describe-error';
-import type { Clock } from '../shared/clock';
+import type { Clock } from '@challenge/messaging';
 import type { EventPublisher, OutboxRelayReport, PendingOutboxStore } from './outbox.types';
 
 /**

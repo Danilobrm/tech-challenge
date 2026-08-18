@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@challenge/contracts": "workspace:*",
+    "@challenge/messaging": "workspace:*",
     "@nestjs/common": "^11.2.1",
     "@nestjs/config": "^4.0.4",
     "@nestjs/core": "^11.2.1",

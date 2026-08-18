@@ -2,8 +2,7 @@ import { transactionCreatedEventSchema } from '@challenge/contracts';
 import type { CreateTransactionInput } from '@challenge/contracts';
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import type { Clock } from '../shared/clock';
-import type { IdGenerator } from '../shared/id-generator';
+import type { Clock, IdGenerator } from '@challenge/messaging';
 import { CreateTransaction } from './create-transaction.service';
 import type {
   NewPendingTransaction,

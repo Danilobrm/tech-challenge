@@ -6,7 +6,7 @@ import {
   transactionCreatedEventSchema,
 } from '@challenge/contracts';
 
-import { KafkaEventPublisher } from '../kafka/kafka-event.publisher';
+import { KafkaEventPublisher } from '@challenge/messaging';
 import { TransactionReview } from './transaction-review';
 
 /**

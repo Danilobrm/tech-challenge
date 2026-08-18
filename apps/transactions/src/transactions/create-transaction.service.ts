@@ -6,8 +6,7 @@ import {
 } from '@challenge/contracts';
 import type { CreateTransactionInput } from '@challenge/contracts';
 
-import type { Clock } from '../shared/clock';
-import type { IdGenerator } from '../shared/id-generator';
+import type { Clock, IdGenerator } from '@challenge/messaging';
 import type { PersistedTransaction, PendingTransactionWriter } from './transaction.types';
 
 export const TRANSACTION_AGGREGATE = 'transaction';

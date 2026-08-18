@@ -2,8 +2,7 @@ import { transactionStatusUpdatedEventSchema } from '@challenge/contracts';
 import type { TransactionCreatedEvent } from '@challenge/contracts';
 import { describe, expect, it } from 'vitest';
 
-import type { Clock } from '../shared/clock';
-import type { IdGenerator } from '../shared/id-generator';
+import type { Clock, IdGenerator } from '@challenge/messaging';
 import { TransactionFraudRule } from './fraud-rule';
 import { TransactionReview } from './transaction-review';
 

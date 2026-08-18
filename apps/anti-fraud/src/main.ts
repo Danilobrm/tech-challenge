@@ -6,8 +6,10 @@ import { NestFactory } from '@nestjs/core';
 import { Transport } from '@nestjs/microservices';
 import type { MicroserviceOptions } from '@nestjs/microservices';
 
+import { FLOW_TOPICS } from '@challenge/contracts';
+import { ensureTopics } from '@challenge/messaging';
+
 import type { Env } from './config/env';
-import { ensureFlowTopics } from './kafka/ensure-topics';
 import { AppModule } from './app.module';
 
 async function bootstrap(): Promise<void> {
@@ -17,7 +19,7 @@ async function bootstrap(): Promise<void> {
   const clientId = config.get('KAFKA_CLIENT_ID', { infer: true });
   const brokers = config.get('KAFKA_BROKERS', { infer: true }).split(',');
 
-  await ensureFlowTopics(clientId, brokers);
+  await ensureTopics(clientId, brokers, FLOW_TOPICS);
 
   // Aplicacao hibrida: o /health continua em HTTP, e o consumo de eventos entra pelo
   // transporte de microservico.

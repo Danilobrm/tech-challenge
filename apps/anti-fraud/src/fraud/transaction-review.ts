@@ -5,8 +5,7 @@ import {
 } from '@challenge/contracts';
 import type { TransactionCreatedEvent, TransactionStatusUpdatedEvent } from '@challenge/contracts';
 
-import type { Clock } from '../shared/clock';
-import type { IdGenerator } from '../shared/id-generator';
+import type { Clock, IdGenerator } from '@challenge/messaging';
 import type { TransactionFraudRule } from './fraud-rule';
 
 /**
