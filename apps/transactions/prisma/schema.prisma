@@ -1,0 +1,96 @@
+// Fonte da verdade do banco. Apenas o servico `transactions` tem Prisma: ele e o unico
+// dono do schema; o `anti-fraud` recebe tudo o que precisa no payload do evento.
+
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  // O app roda em CommonJS (NestJS + `nest build`), entao o client precisa ser emitido
+  // no mesmo formato de modulo.
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum TransactionStatus {
+  PENDING
+  APPROVED
+  REJECTED
+
+  @@map("transaction_status")
+}
+
+/// Catalogo de tipos de transferencia. Os ids sao fixos e vem do seed, nao de uma
+/// sequence: o `transferTypeId` chega de fora, no corpo da requisicao de criacao.
+model TransferType {
+  id   Int    @id
+  name String @unique
+
+  transactions Transaction[]
+
+  @@map("transfer_types")
+}
+
+model Transaction {
+  /// E o `transactionExternalId` exposto na API. uuid v7 e ordenado no tempo, o que mantem
+  /// a localidade dos indices em insercao sequencial.
+  id                      String            @id @default(uuid(7)) @db.Uuid
+  accountExternalIdDebit  String            @map("account_external_id_debit") @db.Uuid
+  accountExternalIdCredit String            @map("account_external_id_credit") @db.Uuid
+  transferTypeId          Int               @map("transfer_type_id")
+  value                   Decimal           @db.Decimal(18, 2)
+  /// Status corrente denormalizado: a leitura da listagem nao precisa reconstruir o
+  /// historico para saber onde a transacao esta.
+  status                  TransactionStatus @default(PENDING)
+  createdAt               DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt               DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  transferType  TransferType               @relation(fields: [transferTypeId], references: [id])
+  statusHistory TransactionStatusHistory[]
+
+  /// Casam com os filtros da listagem: por status e por tipo, sempre ordenado por data.
+  @@index([status, createdAt])
+  @@index([transferTypeId, createdAt])
+  @@map("transactions")
+}
+
+/// Log append-only das transicoes de status. Nunca sofre update nem delete.
+model TransactionStatusHistory {
+  id            String             @id @default(uuid(7)) @db.Uuid
+  transactionId String             @map("transaction_id") @db.Uuid
+  fromStatus    TransactionStatus? @map("from_status")
+  toStatus      TransactionStatus  @map("to_status")
+  reason        String?
+  /// Id do evento que causou a transicao. Junto com `transactionId` faz a deduplicacao
+  /// de entrega repetida do Kafka no proprio banco.
+  eventId       String             @map("event_id")
+  metadata      Json?
+  /// Hora do fato no dominio, nao a hora da gravacao.
+  occurredAt    DateTime           @map("occurred_at") @db.Timestamptz(3)
+
+  transaction Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+
+  @@unique([transactionId, eventId])
+  @@index([transactionId, occurredAt])
+  @@map("transaction_status_history")
+}
+
+/// Outbox: o evento e gravado na mesma transacao Prisma do insert do agregado, e um worker
+/// publica as pendentes depois. Resolve o dual write entre Postgres e Kafka.
+model OutboxMessage {
+  id            String    @id @default(uuid(7)) @db.Uuid
+  aggregateType String    @map("aggregate_type")
+  /// Vira a chave de particao do Kafka, garantindo ordenacao por agregado.
+  aggregateId   String    @map("aggregate_id")
+  eventType     String    @map("event_type")
+  payload       Json
+  occurredAt    DateTime  @map("occurred_at") @db.Timestamptz(3)
+  /// Nulo enquanto a mensagem nao foi publicada. E o que o worker varre.
+  publishedAt   DateTime? @map("published_at") @db.Timestamptz(3)
+  attempts      Int       @default(0)
+  lastError     String?   @map("last_error")
+
+  @@index([publishedAt, occurredAt])
+  @@map("outbox_messages")
+}
