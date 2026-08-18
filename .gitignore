@@ -9,14 +9,17 @@ build/
 out/
 next-env.d.ts
 *.tsbuildinfo
+.turbo/
 
 # tests
 coverage/
+.vitest-reports/
 
 # env
 .env
 .env.local
 .env.*.local
+!.env.example
 
 # logs
 *.log
