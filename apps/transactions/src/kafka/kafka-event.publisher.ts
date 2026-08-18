@@ -3,7 +3,7 @@ import type { OnApplicationShutdown, OnModuleInit } from '@nestjs/common';
 import { ClientKafka } from '@nestjs/microservices';
 import { firstValueFrom } from 'rxjs';
 
-import { KAFKA_PRODUCER } from './kafka.module';
+import { KAFKA_PRODUCER } from './kafka.tokens';
 import type { EventPublisher } from '../outbox/outbox.types';
 import type { JsonObject } from '@challenge/contracts';
 

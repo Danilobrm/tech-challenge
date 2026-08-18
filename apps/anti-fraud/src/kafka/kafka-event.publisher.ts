@@ -4,7 +4,7 @@ import { ClientKafka } from '@nestjs/microservices';
 import type { JsonObject } from '@challenge/contracts';
 import { firstValueFrom } from 'rxjs';
 
-import { KAFKA_PRODUCER } from './kafka.module';
+import { KAFKA_PRODUCER } from './kafka.tokens';
 
 export interface EventPublisher {
   publish(topic: string, key: string, payload: JsonObject): Promise<void>;

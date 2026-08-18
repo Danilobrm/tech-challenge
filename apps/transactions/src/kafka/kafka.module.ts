@@ -5,8 +5,7 @@ import type { KafkaOptions } from '@nestjs/microservices';
 
 import type { Env } from '../config/env';
 import { KafkaEventPublisher } from './kafka-event.publisher';
-
-export const KAFKA_PRODUCER = 'KAFKA_PRODUCER';
+import { KAFKA_PRODUCER } from './kafka.tokens';
 
 @Module({
   imports: [
