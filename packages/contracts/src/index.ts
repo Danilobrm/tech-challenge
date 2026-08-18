@@ -10,3 +10,4 @@ export * from './events/monetary-amount';
 export * from './events/topics';
 export * from './events/transaction-created';
 export * from './events/transaction-status-updated';
+export * from './http/create-transaction';
