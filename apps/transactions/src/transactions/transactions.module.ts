@@ -4,17 +4,20 @@ import { RandomIdGenerator, SystemClock } from '@challenge/messaging';
 
 import { DatabaseModule } from '../database/database.module';
 import { PrismaPendingTransactionWriter } from './adapters/prisma-pending-transaction.writer';
+import { PrismaTransactionReader } from './adapters/prisma-transaction.reader';
 import { PrismaTransactionStatusStore } from './adapters/prisma-transaction-status.store';
 import { TransactionStatusHandler } from './adapters/transaction-status.handler';
 import { TransactionsController } from './adapters/transactions.controller';
 import { ApplyTransactionResolution } from './application/apply-transaction-resolution';
 import { CreateTransaction } from './application/create-transaction';
+import { FindTransaction } from './application/find-transaction';
 
 @Module({
   imports: [DatabaseModule],
   controllers: [TransactionsController, TransactionStatusHandler],
   providers: [
     PrismaPendingTransactionWriter,
+    PrismaTransactionReader,
     PrismaTransactionStatusStore,
     {
       provide: ApplyTransactionResolution,
@@ -29,6 +32,11 @@ import { CreateTransaction } from './application/create-transaction';
       useFactory: (transactions: PrismaPendingTransactionWriter) =>
         new CreateTransaction(transactions, new SystemClock(), new RandomIdGenerator()),
       inject: [PrismaPendingTransactionWriter],
+    },
+    {
+      provide: FindTransaction,
+      useFactory: (transactions: PrismaTransactionReader) => new FindTransaction(transactions),
+      inject: [PrismaTransactionReader],
     },
   ],
 })
