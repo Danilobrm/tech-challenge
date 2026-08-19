@@ -139,4 +139,71 @@ describe('TransactionsView', () => {
     await waitUntilIdle();
     expect(queryOf(fetchMock, 2).get('transferTypeId')).toBeNull();
   });
+
+  it('mantem a tabela na tela enquanto busca a pagina seguinte', async () => {
+    stubFetch(
+      pageWith([transaction], { page: 1, total: 25, totalPages: 2 }),
+      pageWith([transaction], { page: 2, total: 25, totalPages: 2 }),
+    );
+
+    render(<TransactionsView />);
+    const table = await screen.findByRole('table');
+
+    fireEvent.click(screen.getByRole('button', { name: /proxima pagina/i }));
+
+    // Desmontar a tabela durante o refetch jogaria o foco do teclado para fora do botao
+    // que acabou de ser clicado.
+    expect(screen.getByRole('table')).toBe(table);
+    expect(screen.getByRole('button', { name: /proxima pagina/i })).toBeTruthy();
+
+    await waitUntilIdle();
+  });
+
+  it('oferece a volta quando a pagina aberta deixou de existir', async () => {
+    const fetchMock = stubFetch(
+      pageWith([transaction], { page: 1, total: 25, totalPages: 2 }),
+      pageWith([], { page: 2, total: 1, totalPages: 1 }),
+      pageWith([transaction], { page: 1, total: 1, totalPages: 1 }),
+    );
+
+    render(<TransactionsView />);
+    await screen.findByRole('table');
+
+    fireEvent.click(screen.getByRole('button', { name: /proxima pagina/i }));
+
+    expect(await screen.findByText(/esta pagina esta vazia/i)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: /voltar para a primeira pagina/i }));
+
+    expect(await screen.findByRole('table')).toBeTruthy();
+    expect(queryOf(fetchMock, 2).get('page')).toBe('1');
+  });
+
+  it('busca a pagina seguinte sem perder o filtro aplicado', async () => {
+    const fetchMock = stubFetch(
+      pageWith([transaction], { page: 1, total: 25, totalPages: 2 }),
+      pageWith([transaction], { page: 2, total: 25, totalPages: 2 }),
+      pageWith([transaction], { page: 1, total: 3, totalPages: 1 }),
+    );
+
+    render(<TransactionsView />);
+    await screen.findByRole('table');
+
+    fireEvent.click(screen.getByRole('button', { name: /proxima pagina/i }));
+
+    // Enquanto a pagina dois nao chega o formulario fica ocupado, e o clique seguinte
+    // cairia no vazio.
+    await waitUntilIdle();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(queryOf(fetchMock, 1).get('page')).toBe('2');
+
+    // Filtro novo encurta a lista: continuar na pagina dois devolveria vazio sem motivo.
+    fireEvent.change(screen.getByLabelText('Tipo'), { target: { value: '2' } });
+    fireEvent.click(screen.getByRole('button', { name: /aplicar filtros/i }));
+
+    await waitUntilIdle();
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(queryOf(fetchMock, 2).get('page')).toBe('1');
+    expect(queryOf(fetchMock, 2).get('transferTypeId')).toBe('2');
+  });
 });

@@ -1,8 +1,10 @@
 'use client';
 
 import { useState } from 'react';
+import { MAX_PAGE } from '@challenge/contracts';
 
 import { TransactionsFiltersForm } from '@/components/transactions/transactions-filters-form';
+import { TransactionsPagination } from '@/components/transactions/transactions-pagination';
 import { TransactionsTable } from '@/components/transactions/transactions-table';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
@@ -16,12 +18,16 @@ export function TransactionsView() {
   // do "Aplicar filtros" um passo deliberado, em vez de uma requisicao por tecla digitada.
   const [draft, setDraft] = useState<TransactionFilters>(EMPTY_FILTERS);
   const [applied, setApplied] = useState<TransactionFilters>(EMPTY_FILTERS);
+  const [page, setPage] = useState(1);
 
-  const { state, reload } = useTransactionsList(applied, 1);
+  const { state, reload } = useTransactionsList(applied, page);
 
   function apply(filters: TransactionFilters) {
     setDraft(filters);
     setApplied(filters);
+    // Filtro novo encurta a lista: a pagina sete do resultado anterior costuma nao existir
+    // no novo, e voltaria vazia sem que o usuario tenha feito nada de errado.
+    setPage(1);
   }
 
   const busy = state.kind === 'loading' || (state.kind === 'ready' && state.refreshing);
@@ -76,7 +82,23 @@ export function TransactionsView() {
         />
       )}
 
-      {state.kind === 'ready' && state.page.items.length === 0 && (
+      {state.kind === 'ready' && state.page.items.length === 0 && page > 1 && (
+        <StatusPanel
+          title="Esta pagina esta vazia"
+          description="A lista encurtou desde a ultima busca e esta pagina deixou de existir."
+          action={
+            <Button
+              onClick={() => {
+                setPage(1);
+              }}
+            >
+              Voltar para a primeira pagina
+            </Button>
+          }
+        />
+      )}
+
+      {state.kind === 'ready' && state.page.items.length === 0 && page === 1 && (
         <StatusPanel
           title={
             hasActiveFilter(applied)
@@ -108,7 +130,14 @@ export function TransactionsView() {
         // A tabela continua montada durante o refetch, apenas marcada como ocupada: trocar
         // por um painel de espera tiraria o foco do botao que disparou a busca.
         <div aria-busy={state.refreshing} className={state.refreshing ? 'opacity-60' : undefined}>
-          <TransactionsTable items={state.page.items} />
+          <div className="flex flex-col gap-4">
+            <TransactionsTable items={state.page.items} />
+            <TransactionsPagination
+              pagination={state.page.pagination}
+              maxPage={MAX_PAGE}
+              onGoToPage={setPage}
+            />
+          </div>
         </div>
       )}
     </section>
