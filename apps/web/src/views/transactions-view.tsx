@@ -73,7 +73,7 @@ export function TransactionsView() {
           role="alert"
           tone="critical"
           title="Nao foi possivel carregar a listagem"
-          description={state.message}
+          description={state.failure}
           action={
             <Button variant="critical" onClick={reload}>
               Tentar novamente
@@ -82,7 +82,7 @@ export function TransactionsView() {
         />
       )}
 
-      {state.kind === 'ready' && state.page.items.length === 0 && page > 1 && (
+      {state.kind === 'ready' && state.data.items.length === 0 && page > 1 && (
         <StatusPanel
           title="Esta pagina esta vazia"
           description="A lista encurtou desde a ultima busca e esta pagina deixou de existir."
@@ -98,7 +98,7 @@ export function TransactionsView() {
         />
       )}
 
-      {state.kind === 'ready' && state.page.items.length === 0 && page === 1 && (
+      {state.kind === 'ready' && state.data.items.length === 0 && page === 1 && (
         <StatusPanel
           title={
             hasActiveFilter(applied)
@@ -126,14 +126,14 @@ export function TransactionsView() {
         />
       )}
 
-      {state.kind === 'ready' && state.page.items.length > 0 && (
+      {state.kind === 'ready' && state.data.items.length > 0 && (
         // A tabela continua montada durante o refetch, apenas marcada como ocupada: trocar
         // por um painel de espera tiraria o foco do botao que disparou a busca.
         <div aria-busy={state.refreshing} className={state.refreshing ? 'opacity-60' : undefined}>
           <div className="flex flex-col gap-4">
-            <TransactionsTable items={state.page.items} />
+            <TransactionsTable items={state.data.items} />
             <TransactionsPagination
-              pagination={state.page.pagination}
+              pagination={state.data.pagination}
               maxPage={MAX_PAGE}
               onGoToPage={setPage}
             />
