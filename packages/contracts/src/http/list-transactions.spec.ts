@@ -5,6 +5,7 @@ import {
   MAX_PAGE,
   MAX_PAGE_SIZE,
   listTransactionsQuerySchema,
+  listTransactionsResponseSchema,
 } from './list-transactions';
 
 describe('listTransactionsQuerySchema', () => {
@@ -64,5 +65,46 @@ describe('listTransactionsQuerySchema', () => {
 
   it('recusa filtro desconhecido, em vez de devolver a lista inteira em silencio', () => {
     expect(listTransactionsQuerySchema.safeParse({ transferType: '1' }).success).toBe(false);
+  });
+});
+
+describe('listTransactionsResponseSchema', () => {
+  const view = {
+    transactionExternalId: '3f0b4c8e-9d1a-4a53-9c5f-2a7d0f6b1e42',
+    transactionType: { name: 'Pagamento' },
+    transactionStatus: { name: 'pending' },
+    value: 1000,
+    createdAt: '2026-08-18T12:00:00.000Z',
+  };
+
+  it('aceita a pagina que a api devolve', () => {
+    const response = listTransactionsResponseSchema.parse({
+      items: [view],
+      pagination: { page: 1, pageSize: DEFAULT_PAGE_SIZE, total: 1, totalPages: 1 },
+    });
+
+    expect(response.items[0]?.transactionStatus.name).toBe('pending');
+  });
+
+  it('aceita a lista vazia com zero paginas', () => {
+    const response = listTransactionsResponseSchema.parse({
+      items: [],
+      pagination: { page: 1, pageSize: DEFAULT_PAGE_SIZE, total: 0, totalPages: 0 },
+    });
+
+    expect(response.items).toEqual([]);
+  });
+
+  it('recusa status que a listagem nao sabe exibir', () => {
+    const result = listTransactionsResponseSchema.safeParse({
+      items: [{ ...view, transactionStatus: { name: 'reversed' } }],
+      pagination: { page: 1, pageSize: DEFAULT_PAGE_SIZE, total: 1, totalPages: 1 },
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it('recusa resposta sem os metadados de paginacao', () => {
+    expect(listTransactionsResponseSchema.safeParse({ items: [] }).success).toBe(false);
   });
 });

@@ -1,16 +1,8 @@
-import type { ListTransactionsQuery } from '@challenge/contracts';
+import type { ListTransactionsQuery, PageMetadata } from '@challenge/contracts';
 
 import type { PersistedTransaction } from '../domain/transaction';
 import { toStatusName } from '../domain/transaction-status';
 import type { TransactionReader } from '../domain/transaction.ports';
-
-/** Metadados que o cliente precisa para navegar sem adivinhar onde a lista acaba. */
-export interface PageMetadata {
-  page: number;
-  pageSize: number;
-  total: number;
-  totalPages: number;
-}
 
 export interface TransactionListPage {
   items: PersistedTransaction[];

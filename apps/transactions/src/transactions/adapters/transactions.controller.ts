@@ -12,7 +12,12 @@ import {
 } from '@nestjs/common';
 import { z } from 'zod';
 import { createTransactionSchema, listTransactionsQuerySchema } from '@challenge/contracts';
-import type { CreateTransactionInput, ListTransactionsQuery } from '@challenge/contracts';
+import type {
+  CreateTransactionInput,
+  ListTransactionsQuery,
+  ListTransactionsResponse,
+  TransactionView,
+} from '@challenge/contracts';
 
 import { ZodValidationPipe } from '../../shared/zod-validation.pipe';
 import { CreateTransaction } from '../application/create-transaction';
@@ -20,7 +25,6 @@ import { FindTransaction } from '../application/find-transaction';
 import { ListTransactions } from '../application/list-transactions';
 import { TransactionNotFoundError, UnknownTransferTypeError } from '../domain/transaction';
 import { toTransactionListView, toTransactionView } from './transaction.presenter';
-import type { TransactionListView, TransactionView } from './transaction.presenter';
 
 /** Adaptador fino: valida a entrada, delega e traduz o erro de dominio para HTTP. */
 @Controller('transactions')
@@ -52,7 +56,7 @@ export class TransactionsController {
   @Get()
   async list(
     @Query(new ZodValidationPipe(listTransactionsQuerySchema)) query: ListTransactionsQuery,
-  ): Promise<TransactionListView> {
+  ): Promise<ListTransactionsResponse> {
     return toTransactionListView(await this.listTransactions.execute(query));
   }
 
