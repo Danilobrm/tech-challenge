@@ -10,6 +10,16 @@ const envSchema = z.object({
   KAFKA_BROKERS: z.string().min(1),
   KAFKA_CLIENT_ID: z.string().min(1),
   KAFKA_GROUP_ID_TRANSACTIONS: z.string().min(1),
+  /**
+   * Origem do dashboard. O navegador so entrega a resposta a um script de outra origem se
+   * ela vier autorizada, e dashboard e API sobem em portas diferentes — o que ja e origem
+   * diferente. Vem do ambiente porque em producao nao e `localhost`.
+   *
+   * Normalizada para origem pura: o CORS compara com o cabecalho `Origin`, que nunca tem
+   * barra final nem caminho. Um `http://localhost:3000/` no `.env` bloquearia o dashboard
+   * inteiro, e o sintoma seria um erro de rede generico no navegador.
+   */
+  WEB_ORIGIN: z.url().transform((value) => new URL(value).origin),
 });
 
 export type Env = z.infer<typeof envSchema>;
