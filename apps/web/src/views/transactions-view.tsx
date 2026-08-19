@@ -6,6 +6,7 @@ import { MAX_PAGE } from '@challenge/contracts';
 import { TransactionsFiltersForm } from '@/components/transactions/transactions-filters-form';
 import { TransactionsPagination } from '@/components/transactions/transactions-pagination';
 import { TransactionsTable } from '@/components/transactions/transactions-table';
+import { ActionLink } from '@/components/ui/action-link';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
 import { StatusPanel } from '@/components/ui/status-panel';
@@ -34,13 +35,18 @@ export function TransactionsView() {
 
   return (
     <section aria-labelledby="listagem-titulo" className="flex flex-col gap-6">
-      <header className="flex flex-col gap-1">
-        <h1 id="listagem-titulo" className="text-2xl font-semibold tracking-tight text-ink">
-          Transacoes
-        </h1>
-        <p className="text-sm text-ink-muted">
-          Toda transacao nasce pendente e muda de status quando a antifraude responde.
-        </p>
+      <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex flex-col gap-1">
+          <h1 id="listagem-titulo" className="text-2xl font-semibold tracking-tight text-ink">
+            Transacoes
+          </h1>
+          <p className="text-sm text-ink-muted">
+            Toda transacao nasce pendente e muda de status quando a antifraude responde.
+          </p>
+        </div>
+        <ActionLink href="/transactions/nova" variant="primary">
+          Nova transacao
+        </ActionLink>
       </header>
 
       <TransactionsFiltersForm
