@@ -1,5 +1,6 @@
+import { TRANSFER_TYPES } from '@challenge/contracts';
+
 import { createPrismaClient } from './prisma-client.factory.js';
-import { TRANSFER_TYPES } from './transfer-types.js';
 
 // Quem carrega o .env da raiz e o prisma.config.ts, no processo que dispara o seed. Rodar
 // este arquivo por fora do `pnpm db:seed` deixa a variavel ausente, e falhar aqui e mais

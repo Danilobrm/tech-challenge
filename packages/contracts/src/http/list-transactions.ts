@@ -58,3 +58,37 @@ export const listTransactionsQuerySchema = z
   });
 
 export type ListTransactionsQuery = z.infer<typeof listTransactionsQuerySchema>;
+
+/**
+ * Uma transacao como a leitura devolve. E o formato do enunciado, e mora aqui pelo mesmo
+ * motivo da query acima: o presenter da API deriva este tipo e o dashboard valida a
+ * resposta com este schema, entao renomear um campo de um lado quebra a compilacao do
+ * outro em vez de quebrar a tela do usuario.
+ */
+export const transactionViewSchema = z.object({
+  transactionExternalId: z.uuid(),
+  transactionType: z.object({ name: z.string() }),
+  transactionStatus: z.object({ name: transactionStatusLabelSchema }),
+  value: z.number(),
+  createdAt: z.iso.datetime(),
+});
+
+export type TransactionView = z.infer<typeof transactionViewSchema>;
+
+/** Metadados que o cliente precisa para navegar sem adivinhar onde a lista acaba. */
+export const pageMetadataSchema = z.object({
+  page: z.int().positive(),
+  pageSize: z.int().positive(),
+  total: z.int().nonnegative(),
+  // Zero paginas quando nao ha nada — a listagem nao promete uma pagina vazia.
+  totalPages: z.int().nonnegative(),
+});
+
+export type PageMetadata = z.infer<typeof pageMetadataSchema>;
+
+export const listTransactionsResponseSchema = z.object({
+  items: z.array(transactionViewSchema),
+  pagination: pageMetadataSchema,
+});
+
+export type ListTransactionsResponse = z.infer<typeof listTransactionsResponseSchema>;

@@ -109,6 +109,68 @@ isolada, para o ciclo curto.
   o controller HTTP são adaptadores finos: desserializam, validam, delegam, traduzem o erro.
 - Valor monetário é `Decimal`, nunca `Float`.
 
+### Frontend: onde cada arquivo mora
+
+```
+src/
+├── app/          roteamento do Next. Nada além disso.
+├── views/        uma tela por rota
+├── components/
+│   ├── ui/       primitivos do sistema de design, sem domínio
+│   └── <assunto>/ componentes daquele assunto
+├── hooks/        estado e efeito
+└── lib/          código puro, sem React
+```
+
+- `src/app/` é roteamento e nada mais. `page.tsx` monta a view da rota e não passa de cinco
+  linhas: sem regra, sem busca, sem estado. **Pasta `src/pages/` é proibida**: no Next ela é
+  o roteador legado, todo arquivo dentro dela vira URL, e ligá-la junto do App Router quebra
+  o build em rota coincidente.
+- `src/views/<assunto>-view.tsx` é a tela inteira de uma rota. É quem conhece os três
+  estados — carregando, erro e vazio — e orquestra os filhos.
+- `src/components/<assunto>/` guarda os componentes daquele assunto, e `src/components/ui/`
+  os primitivos do sistema de design. Um componente por arquivo, e o arquivo se chama como
+  o componente, em kebab-case.
+- `src/hooks/use-*.ts` guarda estado e efeito reaproveitáveis. Componente não chama a API
+  direto: chama um hook.
+- `src/lib/` é código puro, sem React — cliente HTTP, conversão, formatação. Se precisa de
+  `useState`, não é `lib`.
+- **Teste ao lado do arquivo que ele cobre**, mesmo nome com `.spec.ts(x)`. Nada de pasta
+  `__tests__`. Componente sem `.spec` próprio só quando o spec da view que o compõe já
+  exercita o comportamento dele.
+- Import entre camadas usa o alias `@/`, nunca `../../`. Caminho relativo esconde a direção
+  da dependência assim que o arquivo muda de pasta.
+- Direção permitida: `app` → `views` → `components/<assunto>` → `components/ui` → `hooks` →
+  `lib`. Nunca ao contrário: `lib` não importa componente, `hooks` não importa componente.
+
+### Frontend: como criar um componente
+
+- **Aparência vem de token, nunca de valor solto.** As cores, os raios e a altura de
+  controle estão em `src/app/globals.css`, no bloco `@theme`. Componente escreve
+  `bg-surface`, `text-ink-muted`, `rounded-control` — nunca `bg-white`, `text-zinc-600`,
+  `rounded-lg` nem hex. Token que falta se adiciona no tema, não se contorna no arquivo.
+- **Sem sombra.** A interface separa plano por borda de 1px (`border-line`) e por fundo
+  (`bg-surface-muted`). Sombra empilha profundidade que esta tela não tem.
+- **Nenhum controle com aparência padrão do sistema.** `<select>` leva `appearance-none` e
+  seta desenhada; campo e botão têm a mesma altura, o mesmo raio e a mesma borda, para a
+  linha de formulário alinhar sem ajuste manual.
+- **O elemento nativo é inegociável.** Estiliza-se `button`, `select`, `input` e `table` —
+  não se recria nenhum deles em `div`. É o elemento que entrega papel acessível, teclado e
+  comportamento de toque; nada disso se paga com CSS depois.
+- **Variante é um mapa `Record<Variante, string>`**, no topo do arquivo, e não um encadeado
+  de ternário no meio do JSX. A lista de aparências possíveis fica visível, e o compilador
+  cobra a entrada que faltar.
+- **Primitivo de `ui/` não conhece domínio.** Ele recebe `tone`, `variant`, `label` — nunca
+  `transaction` nem `status`. Quem traduz domínio para intenção é `lib/`, e o resultado é
+  um `Tone`, não uma classe de cor.
+- **Componente de assunto compõe primitivo, não redeclara estilo.** Se um componente de
+  `<assunto>/` está escrevendo `border`, `rounded` e `px-`, o primitivo que falta é que
+  deveria ter nascido.
+- `className` é o último parâmetro do `cn()` e serve para **posição e tamanho** — margem,
+  largura, `flex-1`. Não serve para repintar o primitivo.
+- Todo controle tem estado de foco visível (`focus-visible:ring-*`) e estado desabilitado
+  definido. Cor nunca é a única pista: o texto diz a mesma coisa que o tom.
+
 ## Testes
 
 - Testar comportamento, não implementação.

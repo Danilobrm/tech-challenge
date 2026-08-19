@@ -1,25 +1,12 @@
-import type { TransactionStatusLabel } from '@challenge/contracts';
+import type { ListTransactionsResponse, TransactionView } from '@challenge/contracts';
 
 import type { PersistedTransaction } from '../domain/transaction';
 import { toStatusLabel } from '../domain/transaction-status';
-import type { PageMetadata, TransactionListPage } from '../application/list-transactions';
+import type { TransactionListPage } from '../application/list-transactions';
 
-/** Formato de leitura do enunciado. */
-export interface TransactionView {
-  transactionExternalId: string;
-  transactionType: { name: string };
-  /// O rotulo, e nao `string`: e o mesmo tipo que o filtro da listagem aceita, entao
-  /// resposta e filtro nao tem como divergir sem quebrar a compilacao.
-  transactionStatus: { name: TransactionStatusLabel };
-  value: number;
-  createdAt: string;
-}
-
-/** Itens mais os metadados: quem pagina precisa saber onde a lista termina. */
-export interface TransactionListView {
-  items: TransactionView[];
-  pagination: PageMetadata;
-}
+// O formato de leitura e descrito uma vez em `@challenge/contracts` e derivado aqui: o
+// dashboard valida a resposta com o mesmo schema, entao renomear um campo deste lado
+// quebra a compilacao do outro em vez de quebrar a tela.
 
 export function toTransactionView(transaction: PersistedTransaction): TransactionView {
   return {
@@ -35,7 +22,7 @@ export function toTransactionView(transaction: PersistedTransaction): Transactio
   };
 }
 
-export function toTransactionListView(page: TransactionListPage): TransactionListView {
+export function toTransactionListView(page: TransactionListPage): ListTransactionsResponse {
   return {
     items: page.items.map(toTransactionView),
     pagination: page.pagination,

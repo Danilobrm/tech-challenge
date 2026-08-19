@@ -19,6 +19,10 @@ async function bootstrap(): Promise<void> {
   const clientId = config.get('KAFKA_CLIENT_ID', { infer: true });
   const brokers = config.get('KAFKA_BROKERS', { infer: true }).split(',');
 
+  // Uma origem so, e nao `*`: liberar qualquer origem tornaria a API chamavel por qualquer
+  // pagina aberta no navegador de quem estiver autenticado.
+  app.enableCors({ origin: config.get('WEB_ORIGIN', { infer: true }) });
+
   await ensureTopics(clientId, brokers, FLOW_TOPICS);
 
   // Aplicacao hibrida: a API HTTP e o consumo do resultado da antifraude no mesmo
