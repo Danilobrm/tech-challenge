@@ -11,6 +11,7 @@ import { TransactionsController } from './adapters/transactions.controller';
 import { ApplyTransactionResolution } from './application/apply-transaction-resolution';
 import { CreateTransaction } from './application/create-transaction';
 import { FindTransaction } from './application/find-transaction';
+import { ListTransactions } from './application/list-transactions';
 
 @Module({
   imports: [DatabaseModule],
@@ -36,6 +37,11 @@ import { FindTransaction } from './application/find-transaction';
     {
       provide: FindTransaction,
       useFactory: (transactions: PrismaTransactionReader) => new FindTransaction(transactions),
+      inject: [PrismaTransactionReader],
+    },
+    {
+      provide: ListTransactions,
+      useFactory: (transactions: PrismaTransactionReader) => new ListTransactions(transactions),
       inject: [PrismaTransactionReader],
     },
   ],

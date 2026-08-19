@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { PersistedTransaction } from '../domain/transaction';
-import { toTransactionView } from './transaction.presenter';
+import { toTransactionListView, toTransactionView } from './transaction.presenter';
 
 const stored: PersistedTransaction = {
   transactionExternalId: '0199a2b1-6f4a-7c3d-8e1f-2a3b4c5d6e71',
@@ -26,5 +26,17 @@ describe('toTransactionView', () => {
     expect(toTransactionView({ ...stored, status: 'REJECTED' }).transactionStatus).toEqual({
       name: 'rejected',
     });
+  });
+});
+
+describe('toTransactionListView', () => {
+  it('acompanha os itens dos metadados de paginacao', () => {
+    const view = toTransactionListView({
+      items: [stored],
+      pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
+    });
+
+    expect(view.items).toHaveLength(1);
+    expect(view.pagination).toEqual({ page: 1, pageSize: 20, total: 1, totalPages: 1 });
   });
 });

@@ -2,6 +2,7 @@ import type { TransactionStatusLabel } from '@challenge/contracts';
 
 import type { PersistedTransaction } from '../domain/transaction';
 import { toStatusLabel } from '../domain/transaction-status';
+import type { PageMetadata, TransactionListPage } from '../application/list-transactions';
 
 /** Formato de leitura do enunciado. */
 export interface TransactionView {
@@ -12,6 +13,12 @@ export interface TransactionView {
   transactionStatus: { name: TransactionStatusLabel };
   value: number;
   createdAt: string;
+}
+
+/** Itens mais os metadados: quem pagina precisa saber onde a lista termina. */
+export interface TransactionListView {
+  items: TransactionView[];
+  pagination: PageMetadata;
 }
 
 export function toTransactionView(transaction: PersistedTransaction): TransactionView {
@@ -25,5 +32,12 @@ export function toTransactionView(transaction: PersistedTransaction): Transactio
     // duas casas dentro da faixa exata de `Number`, entao a volta nao perde precisao.
     value: Number(transaction.value),
     createdAt: transaction.createdAt.toISOString(),
+  };
+}
+
+export function toTransactionListView(page: TransactionListPage): TransactionListView {
+  return {
+    items: page.items.map(toTransactionView),
+    pagination: page.pagination,
   };
 }
