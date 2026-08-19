@@ -956,3 +956,181 @@ montada, `fetch` mockado, consulta por `getByRole`.
   `curl` e Kafka UI
 - muda se: entrar segundo consumidor ou segunda transição — aí Testcontainers, mas **fora**
   do `pnpm quality`, em job próprio
+
+---
+
+## Alta concorrência de leituras e escritas
+
+Resposta à pergunta do enunciado. Nada abaixo está implementado — o volume deste exercício
+não cobra nenhum dos seis itens. O que está implementado é o que os torna possíveis sem
+reescrita: índices compostos, compare-and-set e chave de partição.
+
+Ordem de aplicação, começando por medir: `pg_stat_statements` para a consulta cara, lag do
+consumer group para a fila que não drena, `pg_stat_activity` para separar CPU do banco de
+espera por conexão.
+
+---
+
+### Leitura: índice que cobre o filtro, e paginação por keyset
+
+**Decisão:** manter `[status, createdAt]`, `[transferTypeId, createdAt]` e `[createdAt, id]`;
+trocar `OFFSET`/`LIMIT` por cursor em `[createdAt, id]`, `WHERE (created_at, id) < (?, ?)`.
+
+**Alternativas consideradas:**
+
+- deslocamento com contagem cacheada
+- total estimado por `reltuples` do `pg_class`
+- índice parcial só para `status = 'PENDING'`
+- view materializada com a página inicial
+
+**Por quê:**
+
+- custo do `OFFSET` cresce com o deslocamento: página 500 custa 500 vezes a página 1
+- keyset ancora no último item visto — mesmo custo em qualquer profundidade
+- `COUNT(*)` com os mesmos filtros é segunda varredura; cachear ou estimar resolve o
+  `COUNT`, não o `OFFSET`
+- os índices da listagem já são os que o keyset usa: migrar é trocar `WHERE` e formato do
+  cursor, sem migration
+- índice parcial em `PENDING` ajuda o polling, não a listagem geral — refinamento depois
+- preço é de produto: keyset não diz "página 3 de 7" nem salta para a sétima. UI vira
+  anterior/próxima ou rolagem infinita, e o total vira estimativa ou some
+
+---
+
+### Leitura: réplica de leitura
+
+**Decisão:** replicação física em streaming; listagem, detalhe e polling na réplica,
+primário só para escrita.
+
+**Alternativas consideradas:**
+
+- escalar o primário verticalmente
+- cache em Redis com TTL curto
+- CQRS: projeção de leitura em outro armazenamento, alimentada pelos eventos
+
+**Por quê:**
+
+- perfil é leitura-dominante e o polling piora o desequilíbrio: cada tela aberta lê a cada
+  três segundos e nenhuma escreve
+- separar os dois tráfegos não muda uma linha de domínio
+- escalar o primário compra tempo sem mudar a forma: leitura e escrita disputam o mesmo
+  buffer pool e o mesmo teto de conexões
+- cache com TTL: o dado mais lido é o que muda sozinho. TTL viraria a latência da
+  atualização de status, e invalidar exigiria o mesmo fan-out que fez o SSE ser recusado
+- CQRS é o degrau seguinte, e só compensa quando a forma da leitura divergir da escrita —
+  hoje é a mesma tabela
+- preço: lag de replicação quebra read-your-writes — quem cria e é redirecionado pode
+  receber 404. Mitigação: leitura imediatamente posterior a uma escrita vai ao primário
+
+---
+
+### Escrita: compare-and-set, não lock pessimista
+
+**Decisão:** manter `UPDATE ... WHERE id = ? AND status = 'PENDING'` com o unique
+`[transactionId, eventId]`; não introduzir `SELECT ... FOR UPDATE`.
+
+**Alternativas consideradas:**
+
+- lock pessimista na linha (`SELECT ... FOR UPDATE`)
+- `SERIALIZABLE` com retry no erro `40001`
+- fila em memória serializando por agregado
+- coluna de versão (`WHERE version = ?`)
+
+**Por quê:**
+
+- lock pessimista segura a linha até o fim da transação: o tempo de transação vira o teto de
+  throughput, e o lock é adquirido antes de se saber se há trabalho a fazer
+- CAS é uma ida ao banco e nenhuma espera; quem perde a corrida recebe `count: 0` e trata
+  como no-op — que é a semântica desejada num consumidor que pode receber duas vezes
+- `SERIALIZABLE` empurra o problema para o cliente retentar, e sob contenção o retry é
+  trabalho jogado fora
+- fila em memória reintroduz estado no processo e um segundo lugar onde a ordem precisa ser
+  garantida; a partição do Kafka já faz isso, de forma durável
+- versão explícita é o mesmo mecanismo com granularidade maior: hoje `status = 'PENDING'` **é**
+  a versão, porque só existe uma transição
+- muda se: aparecerem estados intermediários — aí a condição vira coluna de versão
+
+---
+
+### Escrita: partição do tópico é o teto de paralelismo
+
+**Decisão:** número de partições é decisão de capacidade: escalar consumo é aumentar
+partição **antes** de instância, mantendo `transactionExternalId` como chave.
+
+**Alternativas consideradas:**
+
+- só subir mais instâncias, com o número de partições atual
+- publicar sem chave, round-robin
+- um tópico por serviço consumidor
+
+**Por quê:**
+
+- o consumer group atribui partição inteira a uma instância: com três partições, a quarta
+  instância sobe, entra no grupo e não recebe nada
+- chave por transação paraleliza sem perder ordem: mesmo agregado na mesma partição,
+  agregados diferentes em paralelo
+- round-robin distribuiria melhor e entregaria criação e resultado fora de ordem — a
+  idempotência seguraria a consistência por acidente
+- aumentar partição depois muda `hash(chave) % partições`: eventos da mesma transação
+  publicados antes e depois caem em partições diferentes, e a ordem entre eles some. Decisão
+  tomada com folga, não sob incidente
+- partição em excesso cobra metadata, arquivos abertos e rebalance lento — e não resolve
+  chave enviesada
+- com uma instância por partição, o número de partições é também o teto de escritores
+  concorrentes no Postgres: teto previsível é o que permite dimensionar o pool
+
+---
+
+### Backpressure: `pause`/`resume` no consumidor
+
+**Decisão:** sob pico, pausar a partição quando o recurso a jusante satura (pool cheio,
+latência de escrita subindo) e retomar quando drenar.
+
+**Alternativas consideradas:**
+
+- reduzir `maxBytes` e o tamanho do lote
+- não fazer nada: deixar `max.poll.interval.ms` estourar e o rebalance regular
+- fila intermediária em memória
+- descartar mensagem sob pressão
+
+**Por quê:**
+
+- Kafka não empurra: o consumidor puxa no ritmo que quiser. O gargalo é o Postgres
+- sem pausa, o pool de conexão vira a fila de espera: conexão que espera gera timeout,
+  timeout gera reprocessamento, reprocessamento aumenta a carga. O laço se realimenta
+- pausar devolve a fila ao Kafka, que é durável e torna a pressão observável: o lag cresce e
+  aparece no monitoramento, em vez de a latência explodir em silêncio
+- lote menor é granularidade, não controle: reduz o soluço e não impede puxar o próximo
+- deixar o rebalance regular é o pior caminho: a instância é expulsa, o grupo reequilibra e o
+  lote é reprocessado — trabalho repetido justamente sem folga
+- fila em memória perde mensagem no restart e esconde o problema dentro do processo
+- custo: `pause()`/`resume()` vivem no consumidor da `kafkajs`, e o transporte do Nest não os
+  expõe. É o "muda se" já registrado na decisão do transporte
+
+---
+
+### Conexão: PgBouncer em modo transaction
+
+**Decisão:** pool externo na frente do Postgres, modo transaction, com os serviços apontando
+para ele.
+
+**Alternativas consideradas:**
+
+- aumentar `max_connections`
+- só ajustar o pool do Prisma em cada processo
+- pool embutido, com uma instância de cada serviço
+
+**Por quê:**
+
+- conexão no Postgres é processo do SO com memória própria: algumas centenas custam mais em
+  troca de contexto do que entregam em vazão
+- `max_connections` alto transforma espera em thrashing
+- o total cresce por multiplicação, não por demanda: instâncias × pool do Prisma × (API +
+  worker da outbox + consumidor)
+- modo transaction devolve a conexão a cada transação e multiplexa dezenas de conexões de
+  aplicação em poucas de banco — formato desta carga, feita de transações curtas
+- preço: sem estado de sessão entre transações. `SET`, advisory lock de sessão e prepared
+  statement nomeado deixam de ser confiáveis. Com Prisma é `?pgbouncer=true`, que desliga os
+  prepared statements
+- muda se: aparecer transação longa ou dependência de estado de sessão — aí o modo é
+  `session` e o ganho cai para perto de zero
