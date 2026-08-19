@@ -924,3 +924,35 @@ aplica. As mensagens de erro moram no schema, em português, e são exibidas cam
 - CloudEvents: vocabulário padronizado para consumidor de fora; aqui os dois compilam juntos
 - Schema Registry: resposta quando publicador e consumidor sobem em versões diferentes
 - muda se: aparecer consumidor fora do monorepo — Schema Registry antes de CloudEvents
+
+---
+
+## Estratégia de teste
+
+**Decisão:** no gate, só teste que não depende de serviço no ar. Backend: classe pura
+instanciada na mão com dublê das portas, sem `Test.createTestingModule`. Frontend: view
+montada, `fetch` mockado, consulta por `getByRole`.
+
+**Alternativas consideradas:**
+
+- Testcontainers com Postgres e Kafka dentro do gate
+- `Test.createTestingModule`, exercitando a injeção junto
+- ponta a ponta por HTTP com Supertest
+- Playwright contra a aplicação de verdade
+- meta de cobertura
+
+**Por quê:**
+
+- o que quebra é fronteira de regra (1000 aprova, 1000.01 rejeita), transição de status e
+  reação a evento repetido ou fora de ordem — tudo decisão de classe pura
+- container no gate tira a propriedade que o torna útil: rodar igual na máquina de quem
+  clona e no CI, em segundos, sem Docker
+- `Test.createTestingModule` testaria fiação declarativa; o erro dela aparece no boot, e o
+  gate já constrói os três apps
+- `getByRole` antes de `data-testid` é escolha de marcação: papel só existe se a marcação
+  estiver certa
+- cobertura como meta compra teste de getter
+- preço: **nada no gate prova que o round trip do Kafka fecha**. Verificado à mão, com
+  `curl` e Kafka UI
+- muda se: entrar segundo consumidor ou segunda transição — aí Testcontainers, mas **fora**
+  do `pnpm quality`, em job próprio
