@@ -896,3 +896,31 @@ aplica. As mensagens de erro moram no schema, em português, e são exibidas cam
   expected number to be >0") não serve nenhum
 - muda se: o formulário crescer para dezenas de campos com dependência entre eles — aí uma
   biblioteca de formulário paga o próprio peso, com o mesmo schema como resolver
+
+---
+
+## Envelope comum a todo evento
+
+**Decisão:** `eventId`, `eventType`, `version`, `occurredAt`, `correlationId`, `data`.
+`occurredAt` é hora do fato, não da publicação. Nome do tópico = `eventType`.
+
+**Alternativas consideradas:**
+
+- payload cru, sem envelope
+- metadados em cabeçalho Kafka, corpo só com o fato
+- CloudEvents
+- Schema Registry com Avro
+
+**Por quê:**
+
+- deduplicação é `[transactionId, eventId]`; sem identidade de mensagem, reentrega =
+  fato novo
+- nenhum dos dois eventos tem campo próprio que sirva de identidade
+- `correlationId` amarra criação e resultado; sem ele, investigar é cruzar horário de log
+- hora do fato, e não da publicação: outbox publica minutos depois, e republicar não pode
+  reescrever a linha do tempo
+- cabeçalho Kafka ficaria fora do schema Zod — validação com duas fontes, envelope não
+  verificável em teste sem broker
+- CloudEvents: vocabulário padronizado para consumidor de fora; aqui os dois compilam juntos
+- Schema Registry: resposta quando publicador e consumidor sobem em versões diferentes
+- muda se: aparecer consumidor fora do monorepo — Schema Registry antes de CloudEvents
