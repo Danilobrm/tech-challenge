@@ -205,6 +205,8 @@ nessa ordem.
   exigência regulatória de reconstruir o estado em qualquer instante do passado — aí o log
   vira fonte da verdade e o campo vira projeção mantida por um projetor
 
+---
+
 ## Valor monetário em `Decimal(18,2)`, nunca `Float`
 
 **Decisão:** `Transaction.value` é `Decimal @db.Decimal(18, 2)`, mapeado para `NUMERIC(18,2)`
@@ -229,6 +231,8 @@ no Postgres.
 - `18,2` cobre valor com 16 dígitos inteiros; mudaria se o domínio passasse a exigir mais
   casas decimais, como câmbio ou juros intradiários
 
+---
+
 ## Nomes `snake_case` no banco, `camelCase` no client, via `@map`
 
 **Decisão:** cada modelo e campo tem `@@map` / `@map` para `snake_case`; o schema Prisma
@@ -246,6 +250,8 @@ Transaction` falha, e todo SQL manual — psql, dump, plano de execução — vi
 - a aplicação é TypeScript e `camelCase` é o que o resto do código já usa; alinhar o schema
   ao banco contaminaria o código de aplicação com a convenção do armazenamento
 - o custo é uma linha por campo, escrita uma vez e verificada pela migration
+
+---
 
 ## Client do Prisma gerado no `postinstall`, não versionado
 
@@ -268,6 +274,8 @@ o diretório está no `.gitignore`, e `postinstall` do pacote roda `prisma gener
   geração duas vezes a cada `pnpm quality`
 - o diretório entrou no ignore do ESLint e do Prettier pelo mesmo motivo: artefato gerado
   não é código nosso para lintar ou formatar
+
+---
 
 ## Outbox: o evento entra na mesma transação do agregado
 
@@ -297,6 +305,8 @@ marca `publishedAt`.
   acoplado ao schema físico das tabelas — infraestrutura demais para dois eventos
 - muda se: o volume tornar o polling caro. O primeiro passo seria `FOR UPDATE SKIP LOCKED`
   para permitir mais de uma instância do worker; CDC só depois disso
+
+---
 
 ## Idempotência em camadas, no banco e não no consumidor
 
@@ -329,6 +339,8 @@ dentro de uma transação: `@@unique([transactionId, eventId])` no histórico (c
 - muda se: aparecerem transições além do par pendente → final. Aí a máquina de estados
   deixa de caber no `WHERE` e vira código explícito antes da escrita
 
+---
+
 ## Chave de partição: `transactionExternalId`
 
 **Decisão:** todo evento é publicado com o id da transação como chave, e os tópicos são
@@ -354,6 +366,8 @@ criados com três partições.
   global mascararia qualquer erro de chave
 - muda se: passar a existir evento que precise ser ordenado por conta, e não por
   transação. Aí são dois tópicos com chaves diferentes, não uma chave que serve mal aos dois
+
+---
 
 ## Exactly-once do Kafka recusado, entrega ao menos uma vez com consumidor idempotente
 
@@ -383,6 +397,8 @@ pela deduplicação no banco.
   chamada a gateway de pagamento. Aí a saída é uma tabela de efeitos aplicados, ainda no
   Postgres, e não exactly-once no broker
 
+---
+
 ## Valor monetário como string decimal no evento
 
 **Decisão:** o `value` trafega no Kafka como `"1000.00"` — string com duas casas fixas —
@@ -409,6 +425,8 @@ enquanto o corpo HTTP continua no formato do enunciado, número.
 - muda se: entrar valor com mais de duas casas decimais, como câmbio. A string continua
   servindo; o que muda é a expressão regular do schema
 
+---
+
 ## Tópicos criados pela aplicação no arranque
 
 **Decisão:** os dois serviços chamam o admin do kafkajs no boot e criam os tópicos do
@@ -434,6 +452,8 @@ fluxo com `waitForLeaders`, antes de o consumidor assinar.
 - muda se: a criação de tópico passar a ser responsabilidade de plataforma, com política de
   retenção e partições definidas fora da aplicação. Aí a chamada sai, e o serviço só falha
   cedo se o tópico não existir
+
+---
 
 ## Camadas visíveis na árvore: `domain`, `application`, `adapters`
 
@@ -465,6 +485,8 @@ portas, zero framework), `application/` (casos de uso puros, com os testes ao la
   Aí a subdivisão natural é por borda (`adapters/http`, `adapters/persistence`), não por
   caso de uso
 
+---
+
 ## Fiação de mensageria num pacote compartilhado
 
 **Decisão:** `packages/messaging` concentra o produtor Kafka, o token de injeção, a
@@ -492,6 +514,8 @@ criação dos tópicos e as duas dependências que carimbam toda mensagem — `C
   ser uma mudança que atinge os dois de uma vez
 - muda se: os serviços passarem a ser publicados e versionados separadamente. Aí o pacote
   vira artefato versionado, e cada serviço escolhe quando adotar a versão nova
+
+---
 
 ## `POST /transactions` não é idempotente
 
@@ -532,6 +556,8 @@ requisição** — e essa fronteira é deliberada, não descuido.
   ou gateway com retry — ou se o valor deixar de ser exercício. Nesse cenário é o primeiro
   item a entrar, antes de DLQ e antes de `FOR UPDATE SKIP LOCKED`
 
+---
+
 ## `eventId` do resultado derivado do evento de origem
 
 **Decisão:** o `eventId` do `transaction.status.updated` é um uuid v5 sobre o `eventId` do
@@ -564,6 +590,8 @@ aleatório por revisão.
   versionada, consulta externa. Aí a origem deixa de determinar a saída e o id precisa
   incluir essa outra entrada
 
+---
+
 ## Teto de tentativas na outbox, sem fila de mensagens mortas
 
 **Decisão:** `listPending` ignora mensagem com `attempts >= 5`, e a tentativa que atinge o
@@ -588,6 +616,8 @@ teto é registrada em log de erro.
 - muda se: aparecer operação de verdade. Aí a mensagem esgotada vai para tabela própria com
   reenvio manual, e o teto vira política dela
 
+---
+
 ## `fromStatus` nulo quando não houve transição
 
 **Decisão:** a linha do histórico grava `fromStatus: 'PENDING'` só quando o compare-and-set
@@ -611,6 +641,8 @@ mudou a transação; quando não mudou, grava `null`.
   transição saiu dele
 - muda se: o histórico passar a ser a fonte da verdade do status corrente. Aí toda linha
   precisa de origem conhecida, e a origem vira parte do que o compare-and-set devolve
+
+---
 
 ## Paginação por deslocamento, com `total` contado junto
 
@@ -650,6 +682,8 @@ por página, ordenada por `createdAt` decrescente com desempate por `id`, e devo
   a paginação numerada por rolagem infinita. Nesse cenário o cursor por `[createdAt, id]`
   entra e o total vira estimativa, ou some
 
+---
+
 ## Contrato de leitura da listagem em `packages/contracts`
 
 **Decisão:** schema Zod da resposta do `GET /transactions` (`transactionViewSchema`,
@@ -675,6 +709,8 @@ resposta com o mesmo schema.
   ele adiciona geração de código para resolver o que o import já resolve
 - muda se: a API passar a ser consumida por cliente fora deste monorepo
 
+---
+
 ## CORS com origem única vinda do ambiente
 
 **Decisão:** `app.enableCors({ origin: WEB_ORIGIN })` no serviço de transações, com
@@ -699,6 +735,8 @@ resposta com o mesmo schema.
 - muda se: entrar cookie de sessão (precisaria de `credentials` e lista de origens) ou um
   gateway único na frente
 
+---
+
 ## Estado dos filtros no componente, e não na URL
 
 **Decisão:** `useState` na view guarda rascunho, filtros aplicados e página. A URL não
@@ -717,6 +755,8 @@ carrega o estado da listagem.
   sobrevive ao refresh
 - muda se: a tela precisar ser compartilhada por link ou aparecer "voltar" preservando o
   filtro — aí a URL passa a ser a fonte da verdade e o estado local vira derivado
+
+---
 
 ## Filtro aplicado por submissão, não a cada tecla
 
@@ -737,6 +777,8 @@ busca usa). A requisição só sai no "Aplicar filtros", e aplicar volta para a 
   sete do resultado anterior costuma não existir no novo
 - muda se: a listagem passar a ter um único campo de busca textual, onde busca incremental
   é o comportamento esperado
+
+---
 
 ## Sistema de interface próprio, com tokens no `@theme`
 
@@ -764,6 +806,8 @@ biblioteca de componentes; sem sombra, separação por borda de 1px; `<select>` 
 - muda se: o produto crescer para dezenas de telas com combos que o HTML não tem
   (multi-seleção, combobox com busca) — aí Radix entra como base e os tokens permanecem
 
+---
+
 ## Tabela permanece montada durante o refetch
 
 **Decisão:** o estado `ready` carrega um `refreshing`. Enquanto a nova página não chega, a
@@ -786,6 +830,8 @@ desde o primeiro render. O painel de espera cheio fica só para a primeira carga
   ser tratado como "carregando do zero"
 - muda se: a listagem ganhar polling (fase seguinte), onde nem o `aria-busy` deve piscar a
   cada ciclo
+
+---
 
 ## Atualização de status na interface por polling condicional
 
@@ -822,6 +868,8 @@ de novo.
 - muda se: a tela passar a acompanhar muitas transações abertas ao mesmo tempo, ou o
   intervalo precisar cair abaixo de um segundo — aí SSE com fan-out por `LISTEN`/`NOTIFY`
   passa a valer o custo
+
+---
 
 ## Formulário de criação valida com o mesmo schema Zod da API
 
