@@ -52,6 +52,10 @@ model Transaction {
   /// Casam com os filtros da listagem: por status e por tipo, sempre ordenado por data.
   @@index([status, createdAt])
   @@index([transferTypeId, createdAt])
+  /// A listagem sem filtro nenhum e a tela inicial do dashboard, e e ela que o polling
+  /// repete. Sem este indice, ordenar por data seria varredura e ordenacao da tabela
+  /// inteira a cada pedido. O `id` entra junto porque e o desempate da ordenacao.
+  @@index([createdAt, id])
   @@map("transactions")
 }
 
