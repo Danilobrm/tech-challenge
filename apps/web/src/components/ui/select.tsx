@@ -3,7 +3,7 @@ import type { SelectHTMLAttributes } from 'react';
 import { cn } from '@/lib/cn';
 
 const CONTROL =
-  'control-height w-full appearance-none rounded-control border border-line-strong bg-surface pl-3 pr-9 text-sm text-ink transition-colors hover:border-ink-subtle focus:border-accent focus:ring-2 focus:ring-accent-ring focus:outline-none disabled:bg-surface-muted disabled:text-ink-subtle';
+  'control-height w-full appearance-none rounded-control border border-line-strong bg-surface pl-3 pr-9 text-sm text-ink transition-colors hover:border-ink-subtle focus:border-accent focus:ring-2 focus:ring-accent-ring focus:outline-none aria-invalid:border-critical disabled:bg-surface-muted disabled:text-ink-subtle';
 
 /**
  * `<select>` de verdade, com a aparencia do sistema desligada por `appearance-none` e a seta
