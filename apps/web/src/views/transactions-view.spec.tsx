@@ -46,6 +46,20 @@ function stubFetch(...responses: Array<ListTransactionsResponse | Error>) {
   return fetchMock;
 }
 
+function queryOf(fetchMock: ReturnType<typeof vi.fn>, call: number): URLSearchParams {
+  return new URL(String(fetchMock.mock.calls[call]?.[0])).searchParams;
+}
+
+/** A busca corrente terminou quando o formulario volta a aceitar outra. */
+function waitUntilIdle(): Promise<void> {
+  return vi.waitFor(() => {
+    expect(screen.getByRole('button', { name: /aplicar filtros/i })).toHaveProperty(
+      'disabled',
+      false,
+    );
+  });
+}
+
 afterEach(() => {
   vi.unstubAllGlobals();
 });
@@ -82,5 +96,47 @@ describe('TransactionsView', () => {
 
     expect(await screen.findByText(/nenhuma transacao foi criada ainda/i)).toBeTruthy();
     expect(screen.queryByRole('table')).toBeNull();
+  });
+
+  it('distingue lista vazia por filtro e oferece a saida', async () => {
+    const fetchMock = stubFetch(pageWith([transaction]), pageWith([]), pageWith([transaction]));
+
+    render(<TransactionsView />);
+    await screen.findByRole('table');
+
+    fireEvent.change(screen.getByLabelText('Status'), { target: { value: 'rejected' } });
+    fireEvent.click(screen.getByRole('button', { name: /aplicar filtros/i }));
+
+    expect(
+      await screen.findByText(/nenhuma transacao encontrada para esses filtros/i),
+    ).toBeTruthy();
+    expect(queryOf(fetchMock, 1).get('status')).toBe('rejected');
+
+    fireEvent.click(screen.getByRole('button', { name: /mostrar todas as transacoes/i }));
+
+    expect(await screen.findByRole('table')).toBeTruthy();
+    expect(queryOf(fetchMock, 2).get('status')).toBeNull();
+  });
+
+  it('desfaz o filtro aplicado mesmo com os campos ja limpos', async () => {
+    const fetchMock = stubFetch(
+      pageWith([transaction]),
+      pageWith([transaction]),
+      pageWith([transaction]),
+    );
+
+    render(<TransactionsView />);
+    await screen.findByRole('table');
+
+    fireEvent.change(screen.getByLabelText('Tipo'), { target: { value: '3' } });
+    fireEvent.click(screen.getByRole('button', { name: /aplicar filtros/i }));
+    await waitUntilIdle();
+
+    // Campo de volta em "Todos", mas a lista na tela continua filtrada.
+    fireEvent.change(screen.getByLabelText('Tipo'), { target: { value: '' } });
+    fireEvent.click(screen.getByRole('button', { name: /limpar filtros/i }));
+
+    await waitUntilIdle();
+    expect(queryOf(fetchMock, 2).get('transferTypeId')).toBeNull();
   });
 });
