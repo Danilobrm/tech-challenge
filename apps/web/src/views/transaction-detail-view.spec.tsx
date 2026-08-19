@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import type { TransactionView } from '@challenge/contracts';
 
+import { STATUS_POLL_INTERVAL_MS } from '@/lib/transactions/polling';
 import { TransactionDetailView } from '@/views/transaction-detail-view';
 
 const TRANSACTION_ID = '3f0b4c8e-9d1a-4a53-9c5f-2a7d0f6b1e42';
@@ -40,12 +41,32 @@ function stubFetch(...responses: StubbedResponse[]) {
     fetchMock.mockResolvedValueOnce({ ok: true, status: 200, json: async () => response });
   }
 
+  // A ultima resposta se repete: o polling pergunta de novo, e sem isso a volta seguinte
+  // cairia num `undefined` que nada tem a ver com o comportamento sob teste.
+  const last = responses.at(-1);
+
+  if (last !== undefined && !(last instanceof Error) && !('status' in last)) {
+    fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => last });
+  }
+
   vi.stubGlobal('fetch', fetchMock);
 
   return fetchMock;
 }
 
+/**
+ * Deixa a leitura corrente terminar sem mover o relogio. `advanceTimersByTime` com um valor
+ * grande adiantaria o intervalo do polling junto, e o teste passaria a medir uma volta que
+ * nunca aconteceu.
+ */
+async function settleRead(): Promise<void> {
+  for (let step = 0; step < 20; step += 1) {
+    await vi.advanceTimersByTimeAsync(0);
+  }
+}
+
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
@@ -61,6 +82,81 @@ describe('TransactionDetailView', () => {
     expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
       `http://api.test/transactions/${TRANSACTION_ID}`,
     );
+  });
+
+  it('reflete a mudanca de status sem o usuario pedir, e para de perguntar depois dela', async () => {
+    vi.useFakeTimers();
+
+    const fetchMock = stubFetch(transactionWith('pending'), transactionWith('approved'));
+
+    render(<TransactionDetailView transactionExternalId={TRANSACTION_ID} />);
+
+    await settleRead();
+    expect(screen.getByText('Pendente')).toBeTruthy();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    // A antifraude respondeu entre uma volta e outra: a tela descobre sozinha.
+    await vi.advanceTimersByTimeAsync(STATUS_POLL_INTERVAL_MS);
+
+    expect(screen.getByText('Aprovada')).toBeTruthy();
+    expect(screen.getByRole('status').textContent).toBe('Status: Aprovada');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    // Aprovada e estado final: continuar perguntando repetiria a mesma resposta para sempre.
+    await vi.advanceTimersByTimeAsync(STATUS_POLL_INTERVAL_MS * 3);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('nao pergunta de novo quando a transacao ja nasce resolvida', async () => {
+    vi.useFakeTimers();
+
+    const fetchMock = stubFetch(transactionWith('rejected'));
+
+    render(<TransactionDetailView transactionExternalId={TRANSACTION_ID} />);
+
+    await settleRead();
+    await vi.advanceTimersByTimeAsync(STATUS_POLL_INTERVAL_MS * 3);
+
+    expect(screen.getByText('Rejeitada')).toBeTruthy();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('nao empilha requisicao quando a volta anterior ainda nao respondeu', async () => {
+    vi.useFakeTimers();
+
+    const fetchMock = stubFetch(transactionWith('pending'));
+    // A partir daqui a API para de responder: sem trava, cada volta do intervalo abriria
+    // mais uma requisicao, e quem resolvesse por ultimo venceria — nao quem perguntou por
+    // ultimo.
+    fetchMock.mockReturnValue(new Promise(() => {}));
+
+    render(<TransactionDetailView transactionExternalId={TRANSACTION_ID} />);
+    await settleRead();
+
+    await vi.advanceTimersByTimeAsync(STATUS_POLL_INTERVAL_MS * 3);
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('assume a falha quando o polling erra varias voltas seguidas', async () => {
+    vi.useFakeTimers();
+
+    const fetchMock = stubFetch(transactionWith('pending'));
+    fetchMock.mockRejectedValue(new TypeError('Failed to fetch'));
+
+    render(<TransactionDetailView transactionExternalId={TRANSACTION_ID} />);
+    await settleRead();
+
+    // Uma volta que falha e oscilacao de rede: a tela continua mostrando o que tinha.
+    await vi.advanceTimersByTimeAsync(STATUS_POLL_INTERVAL_MS);
+    expect(screen.getByText('Pendente')).toBeTruthy();
+    expect(screen.queryByRole('alert')).toBeNull();
+
+    // Tres seguidas nao sao: o dado na tela envelheceu e quem le precisa saber.
+    await vi.advanceTimersByTimeAsync(STATUS_POLL_INTERVAL_MS * 2);
+    await settleRead();
+    expect(screen.getByRole('alert').textContent).toMatch(/nao foi possivel carregar a transacao/i);
+    expect(screen.getByRole('button', { name: /tentar novamente/i })).toBeTruthy();
   });
 
   it('nao oferece tentar de novo quando o identificador do endereco e invalido', async () => {

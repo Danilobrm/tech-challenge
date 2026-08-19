@@ -10,9 +10,11 @@ import { ActionLink } from '@/components/ui/action-link';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
 import { StatusPanel } from '@/components/ui/status-panel';
+import { usePolling } from '@/hooks/use-polling';
 import { useTransactionsList } from '@/hooks/use-transactions-list';
 import { EMPTY_FILTERS, hasActiveFilter } from '@/lib/transactions/list-params';
 import type { TransactionFilters } from '@/lib/transactions/list-params';
+import { hasPendingTransaction, STATUS_POLL_INTERVAL_MS } from '@/lib/transactions/polling';
 
 export function TransactionsView() {
   // O rascunho e o que esta nos campos; o aplicado e o que a busca usa. Separar os dois faz
@@ -21,7 +23,14 @@ export function TransactionsView() {
   const [applied, setApplied] = useState<TransactionFilters>(EMPTY_FILTERS);
   const [page, setPage] = useState(1);
 
-  const { state, reload } = useTransactionsList(applied, page);
+  const { state, reload, refreshQuietly } = useTransactionsList(applied, page);
+
+  // Polling condicional: enquanto alguma linha da pagina estiver pendente, a tela pergunta
+  // de novo; quando a ultima pendente vira aprovada ou rejeitada, o intervalo se desliga.
+  usePolling(refreshQuietly, {
+    active: state.kind === 'ready' && hasPendingTransaction(state.data.items),
+    intervalMs: STATUS_POLL_INTERVAL_MS,
+  });
 
   function apply(filters: TransactionFilters) {
     setDraft(filters);

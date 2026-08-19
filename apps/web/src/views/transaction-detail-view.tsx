@@ -5,15 +5,27 @@ import { Button } from '@/components/ui/button';
 import { InlineLink } from '@/components/ui/inline-link';
 import { Spinner } from '@/components/ui/spinner';
 import { StatusPanel } from '@/components/ui/status-panel';
+import { usePolling } from '@/hooks/use-polling';
 import { useTransactionDetail } from '@/hooks/use-transaction-detail';
 import { statusText } from '@/lib/transactions/format';
+import { hasPendingTransaction, STATUS_POLL_INTERVAL_MS } from '@/lib/transactions/polling';
 
 export function TransactionDetailView({
   transactionExternalId,
 }: {
   transactionExternalId: string;
 }) {
-  const { state, reload } = useTransactionDetail(transactionExternalId);
+  const { state, reload, refreshQuietly } = useTransactionDetail(transactionExternalId);
+
+  // Polling condicional: a antifraude responde fora do ciclo da requisicao, entao a tela so
+  // tem o que perguntar enquanto esta transacao estiver pendente. Aprovada ou rejeitada, o
+  // intervalo e desligado e nao volta.
+  const awaitingResolution = state.kind === 'ready' && hasPendingTransaction([state.data]);
+
+  usePolling(refreshQuietly, {
+    active: awaitingResolution,
+    intervalMs: STATUS_POLL_INTERVAL_MS,
+  });
 
   return (
     <section aria-labelledby="detalhe-titulo" className="flex flex-col gap-6">
@@ -52,7 +64,17 @@ export function TransactionDetailView({
         />
       )}
 
-      {state.kind === 'ready' && <TransactionDetailCard transaction={state.data} />}
+      {state.kind === 'ready' && (
+        <div className="flex flex-col gap-3">
+          <TransactionDetailCard transaction={state.data} />
+          {awaitingResolution && (
+            <p className="text-sm text-ink-muted">
+              A antifraude ainda esta validando esta transacao. O status se atualiza sozinho nesta
+              tela.
+            </p>
+          )}
+        </div>
+      )}
     </section>
   );
 }
