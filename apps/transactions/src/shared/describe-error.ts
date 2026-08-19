@@ -8,5 +8,17 @@ export function describeError(error: unknown): string {
     return error.message;
   }
 
-  return typeof error === 'string' ? error : JSON.stringify(error);
+  if (typeof error === 'string') {
+    return error;
+  }
+
+  try {
+    // `JSON.stringify` devolve `undefined` para `undefined` e para funcao, e lanca em
+    // referencia circular e em `BigInt`. Como esta funcao so e chamada de dentro de um
+    // `catch`, deixar qualquer um desses casos escapar trocaria o erro original por um
+    // erro na descricao dele.
+    return JSON.stringify(error) ?? String(error);
+  } catch {
+    return String(error);
+  }
 }

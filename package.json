@@ -7,7 +7,7 @@
     "node": ">=22 <23"
   },
   "scripts": {
-    "setup": "pnpm install && pnpm --filter @challenge/contracts build && pnpm --filter @challenge/transactions run --if-present db:migrate && pnpm --filter @challenge/transactions run --if-present db:seed",
+    "setup": "pnpm install && pnpm --filter \"./packages/*\" build && pnpm --filter @challenge/transactions run --if-present db:migrate && pnpm --filter @challenge/transactions run --if-present db:seed",
     "dev": "pnpm -r --parallel dev",
     "lint": "eslint .",
     "typecheck": "pnpm -r --if-present typecheck",
