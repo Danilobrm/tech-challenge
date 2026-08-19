@@ -324,6 +324,13 @@ foi esquecimento:
   tempo de build que justifique cache de tarefas; contrato compartilhado em pacote no
   monorepo já falha em compilação; e teste que sobe container tira do gate a propriedade de
   rodar em qualquer máquina sem Docker.
+- **Modelo de conta, com saldo e extrato.** `accountExternalIdDebit` e
+  `accountExternalIdCredit` são uuid sem chave estrangeira: a conta pertence a um serviço que
+  este desafio não modela, e aqui ela é apenas referência. A leitura devolve o formato do
+  enunciado, que não traz as contas, então não há filtro por conta nem tela de extrato — o
+  dashboard mostra transações, não o caminho do dinheiro. Saldo exigiria consistência entre
+  débito e crédito na mesma transação e colidiria com a validação assíncrona: o valor sairia
+  da conta antes de o antifraude decidir, e toda rejeição viraria estorno.
 - **Autenticação e autorização.** O enunciado não pede, e não há usuário no domínio. O CORS
   já é restrito a uma origem vinda do ambiente, e não `*`, para a regra não nascer permissiva.
 

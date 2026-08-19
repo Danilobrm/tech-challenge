@@ -175,6 +175,43 @@ nessa ordem.
 
 ---
 
+## Conta como referência opaca, sem modelo próprio no serviço
+
+**Decisão:** `accountExternalIdDebit` e `accountExternalIdCredit` são colunas `uuid` sem
+chave estrangeira e sem tabela `accounts` do outro lado. O serviço `transactions` registra a
+referência: não valida se a conta existe, não guarda saldo e não é dono do cadastro.
+
+**Alternativas consideradas:**
+
+- modelar `Account` com saldo, debitando e creditando na mesma transação do insert
+- tabela `accounts` só como catálogo, com chave estrangeira a partir de `transactions`,
+  sem saldo
+- devolver as contas na leitura e oferecer filtro por conta, transformando a listagem em
+  extrato
+
+**Por quê:**
+
+- o próprio nome do campo no enunciado carrega a decisão: `accountExternalId*`. _External_
+  diz que a conta pertence a outro sistema — este serviço é o livro de transações, não o
+  dono da conta
+- saldo exigiria consistência entre débito e crédito dentro da mesma transação, e com ela
+  vem travamento por conta, ordem de aquisição para não deadlocar e conta movimentada
+  virando ponto quente; é um domínio inteiro que o enunciado não pede
+- saldo também colidiria de frente com a validação assíncrona: o dinheiro sairia da conta
+  antes de o antifraude decidir, e cada rejeição precisaria de estorno — o que troca um
+  problema de escrita por um de compensação
+- chave estrangeira para `accounts` obrigaria a conta a existir antes da transação, e não há
+  cadastro nem autenticação neste desafio: a conta de origem não teria de onde vir
+- consequência assumida: `transactionViewSchema` devolve o formato do enunciado, que não
+  inclui as contas; não há filtro por conta na listagem; e o botão _Gerar_ do formulário
+  emite um uuid novo a cada clique, então nenhuma conta se repete entre transações. O
+  dashboard mostra transações isoladas, não o caminho do dinheiro
+- muda se: entrar autenticação — aí a conta de origem passa a vir da sessão e não do corpo —
+  ou passar a existir um serviço de contas; nesse ponto a leitura devolveria as contas e o
+  filtro por conta viria junto, sustentado por um índice em cada uma das duas colunas
+
+---
+
 ## Status corrente na tabela da transação, mais log append-only das transições
 
 **Decisão:** `Transaction.status` guarda o estado corrente denormalizado, e
