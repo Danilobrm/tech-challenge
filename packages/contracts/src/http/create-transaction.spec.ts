@@ -33,6 +33,26 @@ describe('createTransactionSchema', () => {
 
     expect(result.success).toBe(false);
   });
+
+  // A mensagem e o que o usuario le sob o campo no dashboard e o que a API devolve no 400.
+  it('descreve cada falha no idioma de quem le', () => {
+    const result = createTransactionSchema.safeParse({
+      accountExternalIdDebit: 'conta-1',
+      accountExternalIdCredit: validInput.accountExternalIdCredit,
+      transferTypeId: Number.NaN,
+      value: Number.NaN,
+    });
+
+    const messageByField = new Map(
+      (result.error?.issues ?? []).map((issue) => [String(issue.path[0]), issue.message]),
+    );
+
+    expect(messageByField.get('accountExternalIdDebit')).toBe(
+      'informe um identificador de conta valido',
+    );
+    expect(messageByField.get('transferTypeId')).toBe('escolha o tipo de transferencia');
+    expect(messageByField.get('value')).toBe('informe o valor da transacao');
+  });
 });
 
 describe('toMonetaryAmount', () => {

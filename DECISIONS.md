@@ -786,3 +786,65 @@ desde o primeiro render. O painel de espera cheio fica só para a primeira carga
   ser tratado como "carregando do zero"
 - muda se: a listagem ganhar polling (fase seguinte), onde nem o `aria-busy` deve piscar a
   cada ciclo
+
+## Atualização de status na interface por polling condicional
+
+**Decisão:** a listagem e o detalhe refazem a leitura a cada três segundos, e apenas
+enquanto houver transação `PENDING` na tela. Sem nenhuma pendente, o intervalo se desliga
+sozinho e não volta. A volta do polling é silenciosa: não marca `aria-busy`, não anuncia
+"carregando" e não troca o conteúdo por um painel de erro se falhar — a próxima volta tenta
+de novo.
+
+**Alternativas consideradas:**
+
+- SSE (`text/event-stream`) empurrando a mudança de status
+- WebSocket
+- polling incondicional, em intervalo fixo
+- não atualizar: exigir recarregar a página
+
+**Por quê:**
+
+- o estado final chega em segundos e a tela tem no máximo uma página de linhas; o custo do
+  polling condicional aqui é uma requisição a cada três segundos, e só enquanto há o que
+  esperar
+- `PENDING` é o único estado do qual se sai — aprovada e rejeitada são finais —, então
+  "existe pendente na tela" é um gatilho exato, e não uma heurística
+- WebSocket é canal bidirecional, e não há nada para o browser mandar de volta: pagaria
+  handshake, `ping`/`pong` e reconexão manual para um fluxo que é só de descida
+- **SSE seria a escolha sob volume maior** — uma conexão de descida, reconexão automática
+  pelo navegador com `Last-Event-ID`, e nenhuma requisição desperdiçada
+- o problema que SSE traz aqui: **com múltiplas instâncias de `transactions`, a instância
+  que consome do Kafka não é a que segura a conexão do browser**. O consumer group entrega a
+  partição a uma instância, e o `EventSource` do usuário está pendurado em outra — que nunca
+  fica sabendo da mudança. Resolver exige fan-out entre instâncias: `LISTEN`/`NOTIFY` do
+  Postgres, ou um canal de pub/sub em Redis. É infraestrutura nova para um ganho que este
+  volume não cobra
+- muda se: a tela passar a acompanhar muitas transações abertas ao mesmo tempo, ou o
+  intervalo precisar cair abaixo de um segundo — aí SSE com fan-out por `LISTEN`/`NOTIFY`
+  passa a valer o custo
+
+## Formulário de criação valida com o mesmo schema Zod da API
+
+**Decisão:** o formulário converte o texto dos campos para o formato do corpo e roda o
+`createTransactionSchema` de `packages/contracts` — o mesmo que o `POST /transactions`
+aplica. As mensagens de erro moram no schema, em português, e são exibidas campo a campo.
+
+**Alternativas consideradas:**
+
+- schema próprio do frontend, espelhando as regras da API
+- validar só no servidor e exibir o 400
+- react-hook-form com resolver de Zod
+- mensagens traduzidas no componente, mantendo o texto padrão do Zod no contrato
+
+**Por quê:**
+
+- schema espelhado é duplicação que envelhece em silêncio: o limite muda de um lado e o
+  outro só descobre em produção
+- validar só no servidor custa uma ida e volta para dizer que faltou preencher um campo
+- react-hook-form resolveria mais do que este formulário tem — quatro campos, uma submissão
+  — e traria dependência para o que `useState` e uma função pura já fazem
+- a mensagem tem dois leitores: o campo no dashboard e o corpo do 400 para quem chama pelo
+  `curl`; escrevê-la no contrato serve os dois, e o texto padrão do Zod ("Too small:
+  expected number to be >0") não serve nenhum
+- muda se: o formulário crescer para dezenas de campos com dependência entre eles — aí uma
+  biblioteca de formulário paga o próprio peso, com o mesmo schema como resolver

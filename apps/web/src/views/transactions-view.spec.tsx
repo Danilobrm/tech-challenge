@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import type { ListTransactionsResponse } from '@challenge/contracts';
 
+import { STATUS_POLL_INTERVAL_MS } from '@/lib/transactions/polling';
 import { TransactionsView } from '@/views/transactions-view';
 
 const transaction: ListTransactionsResponse['items'][number] = {
@@ -50,6 +51,25 @@ function queryOf(fetchMock: ReturnType<typeof vi.fn>, call: number): URLSearchPa
   return new URL(String(fetchMock.mock.calls[call]?.[0])).searchParams;
 }
 
+/**
+ * Deixa a leitura corrente terminar sem mover o relogio. `advanceTimersByTime` com um valor
+ * grande adiantaria o intervalo do polling junto, e o teste passaria a medir uma volta que
+ * nunca aconteceu.
+ */
+async function settleRead(): Promise<void> {
+  for (let step = 0; step < 20; step += 1) {
+    await vi.advanceTimersByTimeAsync(0);
+  }
+}
+
+/** O selo dentro da tabela. Fora dela, "Pendente" tambem e o nome de uma opcao do filtro. */
+function statusInTable(): string {
+  return (
+    within(screen.getByRole('table')).getByRole('cell', { name: /pendente|aprovada|rejeitada/i })
+      .textContent ?? ''
+  );
+}
+
 /** A busca corrente terminou quando o formulario volta a aceitar outra. */
 function waitUntilIdle(): Promise<void> {
   return vi.waitFor(() => {
@@ -61,6 +81,7 @@ function waitUntilIdle(): Promise<void> {
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
@@ -177,6 +198,59 @@ describe('TransactionsView', () => {
 
     expect(await screen.findByRole('table')).toBeTruthy();
     expect(queryOf(fetchMock, 2).get('page')).toBe('1');
+  });
+
+  it('busca sozinha enquanto houver pendente na tela, e para quando nao houver', async () => {
+    vi.useFakeTimers();
+
+    const resolved: ListTransactionsResponse['items'][number] = {
+      ...transaction,
+      transactionStatus: { name: 'approved' },
+    };
+    const fetchMock = stubFetch(pageWith([transaction]));
+    // A resposta seguinte se repete: se o polling nao parasse, a terceira volta encontraria
+    // dado valido e o teste falharia pela contagem, que e o que esta sob teste.
+    fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => pageWith([resolved]) });
+
+    render(<TransactionsView />);
+    await settleRead();
+
+    expect(statusInTable()).toBe('Pendente');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    // A antifraude respondeu entre uma volta e outra: a tela descobre sozinha.
+    await vi.advanceTimersByTimeAsync(STATUS_POLL_INTERVAL_MS);
+
+    expect(statusInTable()).toBe('Aprovada');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    // Sem nenhuma pendente na pagina, o intervalo se desliga sozinho.
+    await vi.advanceTimersByTimeAsync(STATUS_POLL_INTERVAL_MS * 3);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('nao anuncia espera nem ocupa o formulario a cada volta do polling', async () => {
+    vi.useFakeTimers();
+
+    const fetchMock = stubFetch(pageWith([transaction]));
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => pageWith([transaction]),
+    });
+
+    render(<TransactionsView />);
+    await settleRead();
+    await vi.advanceTimersByTimeAsync(STATUS_POLL_INTERVAL_MS);
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    // A regiao viva anunciaria "carregando transacoes" a cada tres segundos, e o botao de
+    // aplicar filtros piscaria desabilitado sem ninguem ter pedido nada.
+    expect(screen.getByRole('status').textContent).toBe('');
+    expect(screen.getByRole('button', { name: /aplicar filtros/i })).toHaveProperty(
+      'disabled',
+      false,
+    );
   });
 
   it('busca a pagina seguinte sem perder o filtro aplicado', async () => {

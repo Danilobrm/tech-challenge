@@ -6,12 +6,15 @@ import { MAX_PAGE } from '@challenge/contracts';
 import { TransactionsFiltersForm } from '@/components/transactions/transactions-filters-form';
 import { TransactionsPagination } from '@/components/transactions/transactions-pagination';
 import { TransactionsTable } from '@/components/transactions/transactions-table';
+import { ActionLink } from '@/components/ui/action-link';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
 import { StatusPanel } from '@/components/ui/status-panel';
+import { usePolling } from '@/hooks/use-polling';
 import { useTransactionsList } from '@/hooks/use-transactions-list';
 import { EMPTY_FILTERS, hasActiveFilter } from '@/lib/transactions/list-params';
 import type { TransactionFilters } from '@/lib/transactions/list-params';
+import { hasPendingTransaction, STATUS_POLL_INTERVAL_MS } from '@/lib/transactions/polling';
 
 export function TransactionsView() {
   // O rascunho e o que esta nos campos; o aplicado e o que a busca usa. Separar os dois faz
@@ -20,7 +23,14 @@ export function TransactionsView() {
   const [applied, setApplied] = useState<TransactionFilters>(EMPTY_FILTERS);
   const [page, setPage] = useState(1);
 
-  const { state, reload } = useTransactionsList(applied, page);
+  const { state, reload, refreshQuietly } = useTransactionsList(applied, page);
+
+  // Polling condicional: enquanto alguma linha da pagina estiver pendente, a tela pergunta
+  // de novo; quando a ultima pendente vira aprovada ou rejeitada, o intervalo se desliga.
+  usePolling(refreshQuietly, {
+    active: state.kind === 'ready' && hasPendingTransaction(state.data.items),
+    intervalMs: STATUS_POLL_INTERVAL_MS,
+  });
 
   function apply(filters: TransactionFilters) {
     setDraft(filters);
@@ -34,13 +44,18 @@ export function TransactionsView() {
 
   return (
     <section aria-labelledby="listagem-titulo" className="flex flex-col gap-6">
-      <header className="flex flex-col gap-1">
-        <h1 id="listagem-titulo" className="text-2xl font-semibold tracking-tight text-ink">
-          Transacoes
-        </h1>
-        <p className="text-sm text-ink-muted">
-          Toda transacao nasce pendente e muda de status quando a antifraude responde.
-        </p>
+      <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex flex-col gap-1">
+          <h1 id="listagem-titulo" className="text-2xl font-semibold tracking-tight text-ink">
+            Transacoes
+          </h1>
+          <p className="text-sm text-ink-muted">
+            Toda transacao nasce pendente e muda de status quando a antifraude responde.
+          </p>
+        </div>
+        <ActionLink href="/transactions/nova" variant="primary">
+          Nova transacao
+        </ActionLink>
       </header>
 
       <TransactionsFiltersForm
@@ -73,7 +88,7 @@ export function TransactionsView() {
           role="alert"
           tone="critical"
           title="Nao foi possivel carregar a listagem"
-          description={state.message}
+          description={state.failure}
           action={
             <Button variant="critical" onClick={reload}>
               Tentar novamente
@@ -82,7 +97,7 @@ export function TransactionsView() {
         />
       )}
 
-      {state.kind === 'ready' && state.page.items.length === 0 && page > 1 && (
+      {state.kind === 'ready' && state.data.items.length === 0 && page > 1 && (
         <StatusPanel
           title="Esta pagina esta vazia"
           description="A lista encurtou desde a ultima busca e esta pagina deixou de existir."
@@ -98,7 +113,7 @@ export function TransactionsView() {
         />
       )}
 
-      {state.kind === 'ready' && state.page.items.length === 0 && page === 1 && (
+      {state.kind === 'ready' && state.data.items.length === 0 && page === 1 && (
         <StatusPanel
           title={
             hasActiveFilter(applied)
@@ -126,14 +141,14 @@ export function TransactionsView() {
         />
       )}
 
-      {state.kind === 'ready' && state.page.items.length > 0 && (
+      {state.kind === 'ready' && state.data.items.length > 0 && (
         // A tabela continua montada durante o refetch, apenas marcada como ocupada: trocar
         // por um painel de espera tiraria o foco do botao que disparou a busca.
         <div aria-busy={state.refreshing} className={state.refreshing ? 'opacity-60' : undefined}>
           <div className="flex flex-col gap-4">
-            <TransactionsTable items={state.page.items} />
+            <TransactionsTable items={state.data.items} />
             <TransactionsPagination
-              pagination={state.page.pagination}
+              pagination={state.data.pagination}
               maxPage={MAX_PAGE}
               onGoToPage={setPage}
             />

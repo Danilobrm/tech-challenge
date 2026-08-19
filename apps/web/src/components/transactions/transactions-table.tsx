@@ -2,6 +2,7 @@ import type { TransactionView } from '@challenge/contracts';
 
 import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
+import { InlineLink } from '@/components/ui/inline-link';
 import { cn } from '@/lib/cn';
 import { formatCurrency, formatDateTime, statusText, statusTone } from '@/lib/transactions/format';
 
@@ -40,11 +41,10 @@ export function TransactionsTable({ items }: { items: readonly TransactionView[]
               >
                 {/* Cabecalho da linha: e o identificador que da nome a ela para quem navega
                     por leitor de tela. */}
-                <th
-                  scope="row"
-                  className={cn(CELL, 'font-mono text-xs font-normal text-ink-muted')}
-                >
-                  {transaction.transactionExternalId}
+                <th scope="row" className={cn(CELL, 'font-mono text-xs font-normal')}>
+                  <InlineLink href={`/transactions/${transaction.transactionExternalId}`}>
+                    {transaction.transactionExternalId}
+                  </InlineLink>
                 </th>
                 <td className={cn(CELL, 'text-ink')}>{transaction.transactionType.name}</td>
                 <td className={CELL}>

@@ -33,6 +33,11 @@ function buildUrl(path: string, searchParams: Record<string, string>): URL {
  */
 const apiErrorBodySchema = z.object({
   message: z.union([z.string(), z.array(z.string())]),
+  /**
+   * O 400 de schema da API vem com um item por campo. Sem eles, a mensagem sozinha diz
+   * apenas "requisicao invalida", e quem le nao descobre qual campo recusou.
+   */
+  issues: z.array(z.object({ path: z.string(), message: z.string() })).optional(),
 });
 
 async function describeHttpFailure(response: Response): Promise<string> {
@@ -57,13 +62,26 @@ async function describeHttpFailure(response: Response): Promise<string> {
     ? parsed.data.message.join('; ')
     : parsed.data.message;
 
+  // O caminho vem vazio quando o que falhou nao e um campo do corpo, e sim um valor solto —
+  // um parametro de rota, por exemplo. "`: Invalid UUID`" nao explicaria nada a ninguem.
+  const issues = (parsed.data.issues ?? []).map((issue) =>
+    issue.path === '' ? issue.message : `${issue.path}: ${issue.message}`,
+  );
+
+  if (issues.length > 0) {
+    return `${detail === '' ? fallback : detail} (${issues.join('; ')})`;
+  }
+
   return detail === '' ? fallback : detail;
 }
 
 export interface JsonRequest<T> {
   path: string;
+  method?: 'GET' | 'POST';
   /** Ja serializados: quem chama decide o que entra na query, e o que fica de fora. */
   searchParams?: Record<string, string> | undefined;
+  /** Corpo ja validado pelo schema de entrada. Vira JSON aqui, e so aqui. */
+  body?: unknown;
   /** O contrato da resposta. Corpo fora do formato e erro tratado, nao `undefined` solto. */
   schema: z.ZodType<T>;
   signal?: AbortSignal | undefined;
@@ -75,11 +93,18 @@ export interface JsonRequest<T> {
  */
 export async function requestJson<T>({
   path,
+  method = 'GET',
   searchParams = {},
+  body,
   schema,
   signal,
 }: JsonRequest<T>): Promise<T> {
-  const init: RequestInit = { headers: { accept: 'application/json' } };
+  const init: RequestInit = { method, headers: { accept: 'application/json' } };
+
+  if (body !== undefined) {
+    init.headers = { ...init.headers, 'content-type': 'application/json' };
+    init.body = JSON.stringify(body);
+  }
 
   if (signal !== undefined) {
     init.signal = signal;
@@ -100,7 +125,7 @@ export async function requestJson<T>({
   }
 
   if (!response.ok) {
-    throw new ApiError('http', await describeHttpFailure(response));
+    throw new ApiError('http', await describeHttpFailure(response), { status: response.status });
   }
 
   let payload: unknown;
