@@ -15,3 +15,4 @@ export * from './events/transaction-status-updated';
 
 export * from './http/create-transaction';
 export * from './http/list-transactions';
+export * from './http/transfer-types';
