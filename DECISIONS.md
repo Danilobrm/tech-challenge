@@ -175,6 +175,43 @@ nessa ordem.
 
 ---
 
+## Conta como referência opaca, sem modelo próprio no serviço
+
+**Decisão:** `accountExternalIdDebit` e `accountExternalIdCredit` são colunas `uuid` sem
+chave estrangeira e sem tabela `accounts` do outro lado. O serviço `transactions` registra a
+referência: não valida se a conta existe, não guarda saldo e não é dono do cadastro.
+
+**Alternativas consideradas:**
+
+- modelar `Account` com saldo, debitando e creditando na mesma transação do insert
+- tabela `accounts` só como catálogo, com chave estrangeira a partir de `transactions`,
+  sem saldo
+- devolver as contas na leitura e oferecer filtro por conta, transformando a listagem em
+  extrato
+
+**Por quê:**
+
+- o próprio nome do campo no enunciado carrega a decisão: `accountExternalId*`. _External_
+  diz que a conta pertence a outro sistema — este serviço é o livro de transações, não o
+  dono da conta
+- saldo exigiria consistência entre débito e crédito dentro da mesma transação, e com ela
+  vem travamento por conta, ordem de aquisição para não deadlocar e conta movimentada
+  virando ponto quente; é um domínio inteiro que o enunciado não pede
+- saldo também colidiria de frente com a validação assíncrona: o dinheiro sairia da conta
+  antes de o antifraude decidir, e cada rejeição precisaria de estorno — o que troca um
+  problema de escrita por um de compensação
+- chave estrangeira para `accounts` obrigaria a conta a existir antes da transação, e não há
+  cadastro nem autenticação neste desafio: a conta de origem não teria de onde vir
+- consequência assumida: `transactionViewSchema` devolve o formato do enunciado, que não
+  inclui as contas; não há filtro por conta na listagem; e o botão _Gerar_ do formulário
+  emite um uuid novo a cada clique, então nenhuma conta se repete entre transações. O
+  dashboard mostra transações isoladas, não o caminho do dinheiro
+- muda se: entrar autenticação — aí a conta de origem passa a vir da sessão e não do corpo —
+  ou passar a existir um serviço de contas; nesse ponto a leitura devolveria as contas e o
+  filtro por conta viria junto, sustentado por um índice em cada uma das duas colunas
+
+---
+
 ## Status corrente na tabela da transação, mais log append-only das transições
 
 **Decisão:** `Transaction.status` guarda o estado corrente denormalizado, e
@@ -205,6 +242,8 @@ nessa ordem.
   exigência regulatória de reconstruir o estado em qualquer instante do passado — aí o log
   vira fonte da verdade e o campo vira projeção mantida por um projetor
 
+---
+
 ## Valor monetário em `Decimal(18,2)`, nunca `Float`
 
 **Decisão:** `Transaction.value` é `Decimal @db.Decimal(18, 2)`, mapeado para `NUMERIC(18,2)`
@@ -229,6 +268,8 @@ no Postgres.
 - `18,2` cobre valor com 16 dígitos inteiros; mudaria se o domínio passasse a exigir mais
   casas decimais, como câmbio ou juros intradiários
 
+---
+
 ## Nomes `snake_case` no banco, `camelCase` no client, via `@map`
 
 **Decisão:** cada modelo e campo tem `@@map` / `@map` para `snake_case`; o schema Prisma
@@ -246,6 +287,8 @@ Transaction` falha, e todo SQL manual — psql, dump, plano de execução — vi
 - a aplicação é TypeScript e `camelCase` é o que o resto do código já usa; alinhar o schema
   ao banco contaminaria o código de aplicação com a convenção do armazenamento
 - o custo é uma linha por campo, escrita uma vez e verificada pela migration
+
+---
 
 ## Client do Prisma gerado no `postinstall`, não versionado
 
@@ -268,6 +311,8 @@ o diretório está no `.gitignore`, e `postinstall` do pacote roda `prisma gener
   geração duas vezes a cada `pnpm quality`
 - o diretório entrou no ignore do ESLint e do Prettier pelo mesmo motivo: artefato gerado
   não é código nosso para lintar ou formatar
+
+---
 
 ## Outbox: o evento entra na mesma transação do agregado
 
@@ -297,6 +342,8 @@ marca `publishedAt`.
   acoplado ao schema físico das tabelas — infraestrutura demais para dois eventos
 - muda se: o volume tornar o polling caro. O primeiro passo seria `FOR UPDATE SKIP LOCKED`
   para permitir mais de uma instância do worker; CDC só depois disso
+
+---
 
 ## Idempotência em camadas, no banco e não no consumidor
 
@@ -329,6 +376,8 @@ dentro de uma transação: `@@unique([transactionId, eventId])` no histórico (c
 - muda se: aparecerem transições além do par pendente → final. Aí a máquina de estados
   deixa de caber no `WHERE` e vira código explícito antes da escrita
 
+---
+
 ## Chave de partição: `transactionExternalId`
 
 **Decisão:** todo evento é publicado com o id da transação como chave, e os tópicos são
@@ -354,6 +403,8 @@ criados com três partições.
   global mascararia qualquer erro de chave
 - muda se: passar a existir evento que precise ser ordenado por conta, e não por
   transação. Aí são dois tópicos com chaves diferentes, não uma chave que serve mal aos dois
+
+---
 
 ## Exactly-once do Kafka recusado, entrega ao menos uma vez com consumidor idempotente
 
@@ -383,6 +434,8 @@ pela deduplicação no banco.
   chamada a gateway de pagamento. Aí a saída é uma tabela de efeitos aplicados, ainda no
   Postgres, e não exactly-once no broker
 
+---
+
 ## Valor monetário como string decimal no evento
 
 **Decisão:** o `value` trafega no Kafka como `"1000.00"` — string com duas casas fixas —
@@ -409,6 +462,8 @@ enquanto o corpo HTTP continua no formato do enunciado, número.
 - muda se: entrar valor com mais de duas casas decimais, como câmbio. A string continua
   servindo; o que muda é a expressão regular do schema
 
+---
+
 ## Tópicos criados pela aplicação no arranque
 
 **Decisão:** os dois serviços chamam o admin do kafkajs no boot e criam os tópicos do
@@ -434,6 +489,8 @@ fluxo com `waitForLeaders`, antes de o consumidor assinar.
 - muda se: a criação de tópico passar a ser responsabilidade de plataforma, com política de
   retenção e partições definidas fora da aplicação. Aí a chamada sai, e o serviço só falha
   cedo se o tópico não existir
+
+---
 
 ## Camadas visíveis na árvore: `domain`, `application`, `adapters`
 
@@ -465,6 +522,8 @@ portas, zero framework), `application/` (casos de uso puros, com os testes ao la
   Aí a subdivisão natural é por borda (`adapters/http`, `adapters/persistence`), não por
   caso de uso
 
+---
+
 ## Fiação de mensageria num pacote compartilhado
 
 **Decisão:** `packages/messaging` concentra o produtor Kafka, o token de injeção, a
@@ -492,6 +551,8 @@ criação dos tópicos e as duas dependências que carimbam toda mensagem — `C
   ser uma mudança que atinge os dois de uma vez
 - muda se: os serviços passarem a ser publicados e versionados separadamente. Aí o pacote
   vira artefato versionado, e cada serviço escolhe quando adotar a versão nova
+
+---
 
 ## `POST /transactions` não é idempotente
 
@@ -532,6 +593,8 @@ requisição** — e essa fronteira é deliberada, não descuido.
   ou gateway com retry — ou se o valor deixar de ser exercício. Nesse cenário é o primeiro
   item a entrar, antes de DLQ e antes de `FOR UPDATE SKIP LOCKED`
 
+---
+
 ## `eventId` do resultado derivado do evento de origem
 
 **Decisão:** o `eventId` do `transaction.status.updated` é um uuid v5 sobre o `eventId` do
@@ -564,6 +627,8 @@ aleatório por revisão.
   versionada, consulta externa. Aí a origem deixa de determinar a saída e o id precisa
   incluir essa outra entrada
 
+---
+
 ## Teto de tentativas na outbox, sem fila de mensagens mortas
 
 **Decisão:** `listPending` ignora mensagem com `attempts >= 5`, e a tentativa que atinge o
@@ -588,6 +653,8 @@ teto é registrada em log de erro.
 - muda se: aparecer operação de verdade. Aí a mensagem esgotada vai para tabela própria com
   reenvio manual, e o teto vira política dela
 
+---
+
 ## `fromStatus` nulo quando não houve transição
 
 **Decisão:** a linha do histórico grava `fromStatus: 'PENDING'` só quando o compare-and-set
@@ -611,6 +678,8 @@ mudou a transação; quando não mudou, grava `null`.
   transição saiu dele
 - muda se: o histórico passar a ser a fonte da verdade do status corrente. Aí toda linha
   precisa de origem conhecida, e a origem vira parte do que o compare-and-set devolve
+
+---
 
 ## Paginação por deslocamento, com `total` contado junto
 
@@ -650,6 +719,8 @@ por página, ordenada por `createdAt` decrescente com desempate por `id`, e devo
   a paginação numerada por rolagem infinita. Nesse cenário o cursor por `[createdAt, id]`
   entra e o total vira estimativa, ou some
 
+---
+
 ## Contrato de leitura da listagem em `packages/contracts`
 
 **Decisão:** schema Zod da resposta do `GET /transactions` (`transactionViewSchema`,
@@ -675,6 +746,8 @@ resposta com o mesmo schema.
   ele adiciona geração de código para resolver o que o import já resolve
 - muda se: a API passar a ser consumida por cliente fora deste monorepo
 
+---
+
 ## CORS com origem única vinda do ambiente
 
 **Decisão:** `app.enableCors({ origin: WEB_ORIGIN })` no serviço de transações, com
@@ -699,6 +772,8 @@ resposta com o mesmo schema.
 - muda se: entrar cookie de sessão (precisaria de `credentials` e lista de origens) ou um
   gateway único na frente
 
+---
+
 ## Estado dos filtros no componente, e não na URL
 
 **Decisão:** `useState` na view guarda rascunho, filtros aplicados e página. A URL não
@@ -717,6 +792,8 @@ carrega o estado da listagem.
   sobrevive ao refresh
 - muda se: a tela precisar ser compartilhada por link ou aparecer "voltar" preservando o
   filtro — aí a URL passa a ser a fonte da verdade e o estado local vira derivado
+
+---
 
 ## Filtro aplicado por submissão, não a cada tecla
 
@@ -737,6 +814,8 @@ busca usa). A requisição só sai no "Aplicar filtros", e aplicar volta para a 
   sete do resultado anterior costuma não existir no novo
 - muda se: a listagem passar a ter um único campo de busca textual, onde busca incremental
   é o comportamento esperado
+
+---
 
 ## Sistema de interface próprio, com tokens no `@theme`
 
@@ -764,6 +843,8 @@ biblioteca de componentes; sem sombra, separação por borda de 1px; `<select>` 
 - muda se: o produto crescer para dezenas de telas com combos que o HTML não tem
   (multi-seleção, combobox com busca) — aí Radix entra como base e os tokens permanecem
 
+---
+
 ## Tabela permanece montada durante o refetch
 
 **Decisão:** o estado `ready` carrega um `refreshing`. Enquanto a nova página não chega, a
@@ -786,6 +867,8 @@ desde o primeiro render. O painel de espera cheio fica só para a primeira carga
   ser tratado como "carregando do zero"
 - muda se: a listagem ganhar polling (fase seguinte), onde nem o `aria-busy` deve piscar a
   cada ciclo
+
+---
 
 ## Atualização de status na interface por polling condicional
 
@@ -823,6 +906,8 @@ de novo.
   intervalo precisar cair abaixo de um segundo — aí SSE com fan-out por `LISTEN`/`NOTIFY`
   passa a valer o custo
 
+---
+
 ## Formulário de criação valida com o mesmo schema Zod da API
 
 **Decisão:** o formulário converte o texto dos campos para o formato do corpo e roda o
@@ -848,3 +933,241 @@ aplica. As mensagens de erro moram no schema, em português, e são exibidas cam
   expected number to be >0") não serve nenhum
 - muda se: o formulário crescer para dezenas de campos com dependência entre eles — aí uma
   biblioteca de formulário paga o próprio peso, com o mesmo schema como resolver
+
+---
+
+## Envelope comum a todo evento
+
+**Decisão:** `eventId`, `eventType`, `version`, `occurredAt`, `correlationId`, `data`.
+`occurredAt` é hora do fato, não da publicação. Nome do tópico = `eventType`.
+
+**Alternativas consideradas:**
+
+- payload cru, sem envelope
+- metadados em cabeçalho Kafka, corpo só com o fato
+- CloudEvents
+- Schema Registry com Avro
+
+**Por quê:**
+
+- deduplicação é `[transactionId, eventId]`; sem identidade de mensagem, reentrega =
+  fato novo
+- nenhum dos dois eventos tem campo próprio que sirva de identidade
+- `correlationId` amarra criação e resultado; sem ele, investigar é cruzar horário de log
+- hora do fato, e não da publicação: outbox publica minutos depois, e republicar não pode
+  reescrever a linha do tempo
+- cabeçalho Kafka ficaria fora do schema Zod — validação com duas fontes, envelope não
+  verificável em teste sem broker
+- CloudEvents: vocabulário padronizado para consumidor de fora; aqui os dois compilam juntos
+- Schema Registry: resposta quando publicador e consumidor sobem em versões diferentes
+- muda se: aparecer consumidor fora do monorepo — Schema Registry antes de CloudEvents
+
+---
+
+## Estratégia de teste
+
+**Decisão:** no gate, só teste que não depende de serviço no ar. Backend: classe pura
+instanciada na mão com dublê das portas, sem `Test.createTestingModule`. Frontend: view
+montada, `fetch` mockado, consulta por `getByRole`.
+
+**Alternativas consideradas:**
+
+- Testcontainers com Postgres e Kafka dentro do gate
+- `Test.createTestingModule`, exercitando a injeção junto
+- ponta a ponta por HTTP com Supertest
+- Playwright contra a aplicação de verdade
+- meta de cobertura
+
+**Por quê:**
+
+- o que quebra é fronteira de regra (1000 aprova, 1000.01 rejeita), transição de status e
+  reação a evento repetido ou fora de ordem — tudo decisão de classe pura
+- container no gate tira a propriedade que o torna útil: rodar igual na máquina de quem
+  clona e no CI, em segundos, sem Docker
+- `Test.createTestingModule` testaria fiação declarativa; o erro dela aparece no boot, e o
+  gate já constrói os três apps
+- `getByRole` antes de `data-testid` é escolha de marcação: papel só existe se a marcação
+  estiver certa
+- cobertura como meta compra teste de getter
+- preço: **nada no gate prova que o round trip do Kafka fecha**. Verificado à mão, com
+  `curl` e Kafka UI
+- muda se: entrar segundo consumidor ou segunda transição — aí Testcontainers, mas **fora**
+  do `pnpm quality`, em job próprio
+
+---
+
+## Alta concorrência de leituras e escritas
+
+Resposta à pergunta do enunciado. Nada abaixo está implementado — o volume deste exercício
+não cobra nenhum dos seis itens. O que está implementado é o que os torna possíveis sem
+reescrita: índices compostos, compare-and-set e chave de partição.
+
+Ordem de aplicação, começando por medir: `pg_stat_statements` para a consulta cara, lag do
+consumer group para a fila que não drena, `pg_stat_activity` para separar CPU do banco de
+espera por conexão.
+
+---
+
+### Leitura: índice que cobre o filtro, e paginação por keyset
+
+**Decisão:** manter `[status, createdAt]`, `[transferTypeId, createdAt]` e `[createdAt, id]`;
+trocar `OFFSET`/`LIMIT` por cursor em `[createdAt, id]`, `WHERE (created_at, id) < (?, ?)`.
+
+**Alternativas consideradas:**
+
+- deslocamento com contagem cacheada
+- total estimado por `reltuples` do `pg_class`
+- índice parcial só para `status = 'PENDING'`
+- view materializada com a página inicial
+
+**Por quê:**
+
+- custo do `OFFSET` cresce com o deslocamento: página 500 custa 500 vezes a página 1
+- keyset ancora no último item visto — mesmo custo em qualquer profundidade
+- `COUNT(*)` com os mesmos filtros é segunda varredura; cachear ou estimar resolve o
+  `COUNT`, não o `OFFSET`
+- os índices da listagem já são os que o keyset usa: migrar é trocar `WHERE` e formato do
+  cursor, sem migration
+- índice parcial em `PENDING` ajuda o polling, não a listagem geral — refinamento depois
+- preço é de produto: keyset não diz "página 3 de 7" nem salta para a sétima. UI vira
+  anterior/próxima ou rolagem infinita, e o total vira estimativa ou some
+
+---
+
+### Leitura: réplica de leitura
+
+**Decisão:** replicação física em streaming; listagem, detalhe e polling na réplica,
+primário só para escrita.
+
+**Alternativas consideradas:**
+
+- escalar o primário verticalmente
+- cache em Redis com TTL curto
+- CQRS: projeção de leitura em outro armazenamento, alimentada pelos eventos
+
+**Por quê:**
+
+- perfil é leitura-dominante e o polling piora o desequilíbrio: cada tela aberta lê a cada
+  três segundos e nenhuma escreve
+- separar os dois tráfegos não muda uma linha de domínio
+- escalar o primário compra tempo sem mudar a forma: leitura e escrita disputam o mesmo
+  buffer pool e o mesmo teto de conexões
+- cache com TTL: o dado mais lido é o que muda sozinho. TTL viraria a latência da
+  atualização de status, e invalidar exigiria o mesmo fan-out que fez o SSE ser recusado
+- CQRS é o degrau seguinte, e só compensa quando a forma da leitura divergir da escrita —
+  hoje é a mesma tabela
+- preço: lag de replicação quebra read-your-writes — quem cria e é redirecionado pode
+  receber 404. Mitigação: leitura imediatamente posterior a uma escrita vai ao primário
+
+---
+
+### Escrita: compare-and-set, não lock pessimista
+
+**Decisão:** manter `UPDATE ... WHERE id = ? AND status = 'PENDING'` com o unique
+`[transactionId, eventId]`; não introduzir `SELECT ... FOR UPDATE`.
+
+**Alternativas consideradas:**
+
+- lock pessimista na linha (`SELECT ... FOR UPDATE`)
+- `SERIALIZABLE` com retry no erro `40001`
+- fila em memória serializando por agregado
+- coluna de versão (`WHERE version = ?`)
+
+**Por quê:**
+
+- lock pessimista segura a linha até o fim da transação: o tempo de transação vira o teto de
+  throughput, e o lock é adquirido antes de se saber se há trabalho a fazer
+- CAS é uma ida ao banco e nenhuma espera; quem perde a corrida recebe `count: 0` e trata
+  como no-op — que é a semântica desejada num consumidor que pode receber duas vezes
+- `SERIALIZABLE` empurra o problema para o cliente retentar, e sob contenção o retry é
+  trabalho jogado fora
+- fila em memória reintroduz estado no processo e um segundo lugar onde a ordem precisa ser
+  garantida; a partição do Kafka já faz isso, de forma durável
+- versão explícita é o mesmo mecanismo com granularidade maior: hoje `status = 'PENDING'` **é**
+  a versão, porque só existe uma transição
+- muda se: aparecerem estados intermediários — aí a condição vira coluna de versão
+
+---
+
+### Escrita: partição do tópico é o teto de paralelismo
+
+**Decisão:** número de partições é decisão de capacidade: escalar consumo é aumentar
+partição **antes** de instância, mantendo `transactionExternalId` como chave.
+
+**Alternativas consideradas:**
+
+- só subir mais instâncias, com o número de partições atual
+- publicar sem chave, round-robin
+- um tópico por serviço consumidor
+
+**Por quê:**
+
+- o consumer group atribui partição inteira a uma instância: com três partições, a quarta
+  instância sobe, entra no grupo e não recebe nada
+- chave por transação paraleliza sem perder ordem: mesmo agregado na mesma partição,
+  agregados diferentes em paralelo
+- round-robin distribuiria melhor e entregaria criação e resultado fora de ordem — a
+  idempotência seguraria a consistência por acidente
+- aumentar partição depois muda `hash(chave) % partições`: eventos da mesma transação
+  publicados antes e depois caem em partições diferentes, e a ordem entre eles some. Decisão
+  tomada com folga, não sob incidente
+- partição em excesso cobra metadata, arquivos abertos e rebalance lento — e não resolve
+  chave enviesada
+- com uma instância por partição, o número de partições é também o teto de escritores
+  concorrentes no Postgres: teto previsível é o que permite dimensionar o pool
+
+---
+
+### Backpressure: `pause`/`resume` no consumidor
+
+**Decisão:** sob pico, pausar a partição quando o recurso a jusante satura (pool cheio,
+latência de escrita subindo) e retomar quando drenar.
+
+**Alternativas consideradas:**
+
+- reduzir `maxBytes` e o tamanho do lote
+- não fazer nada: deixar `max.poll.interval.ms` estourar e o rebalance regular
+- fila intermediária em memória
+- descartar mensagem sob pressão
+
+**Por quê:**
+
+- Kafka não empurra: o consumidor puxa no ritmo que quiser. O gargalo é o Postgres
+- sem pausa, o pool de conexão vira a fila de espera: conexão que espera gera timeout,
+  timeout gera reprocessamento, reprocessamento aumenta a carga. O laço se realimenta
+- pausar devolve a fila ao Kafka, que é durável e torna a pressão observável: o lag cresce e
+  aparece no monitoramento, em vez de a latência explodir em silêncio
+- lote menor é granularidade, não controle: reduz o soluço e não impede puxar o próximo
+- deixar o rebalance regular é o pior caminho: a instância é expulsa, o grupo reequilibra e o
+  lote é reprocessado — trabalho repetido justamente sem folga
+- fila em memória perde mensagem no restart e esconde o problema dentro do processo
+- custo: `pause()`/`resume()` vivem no consumidor da `kafkajs`, e o transporte do Nest não os
+  expõe. É o "muda se" já registrado na decisão do transporte
+
+---
+
+### Conexão: PgBouncer em modo transaction
+
+**Decisão:** pool externo na frente do Postgres, modo transaction, com os serviços apontando
+para ele.
+
+**Alternativas consideradas:**
+
+- aumentar `max_connections`
+- só ajustar o pool do Prisma em cada processo
+- pool embutido, com uma instância de cada serviço
+
+**Por quê:**
+
+- conexão no Postgres é processo do SO com memória própria: algumas centenas custam mais em
+  troca de contexto do que entregam em vazão
+- `max_connections` alto transforma espera em thrashing
+- o total cresce por multiplicação, não por demanda: instâncias × pool do Prisma × (API +
+  worker da outbox + consumidor)
+- modo transaction devolve a conexão a cada transação e multiplexa dezenas de conexões de
+  aplicação em poucas de banco — formato desta carga, feita de transações curtas
+- preço: sem estado de sessão entre transações. `SET`, advisory lock de sessão e prepared
+  statement nomeado deixam de ser confiáveis. Com Prisma é `?pgbouncer=true`, que desliga os
+  prepared statements
+- muda se: aparecer transação longa ou dependência de estado de sessão — aí o modo é
+  `session` e o ganho cai para perto de zero

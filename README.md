@@ -1,50 +1,188 @@
-# Desafio Técnico BIUD — Fullstack
+# Transações com validação antifraude assíncrona
 
-Bem-vindo. Este desafio existe para que você mostre como pensa, decide e organiza código em
-um cenário próximo do que fazemos aqui: uma API orientada a eventos e uma interface que
-precisa lidar com dados que mudam depois que a tela já foi renderizada.
+Monorepo com dois serviços NestJS e um dashboard Next.js. Uma transação nasce `pendente`,
+é avaliada por um serviço antifraude **fora do ciclo da requisição** e tem o status
+atualizado depois. A comunicação entre os serviços é por Kafka; o dashboard vê a mudança
+acontecer sem recarregar a página.
 
-O repositório vem praticamente vazio de propósito. Montar o projeto — workspace, tooling,
-padrões, integração contínua — faz parte do desafio, porque faz parte do trabalho.
+Regra do domínio: valor **acima de** 1000 é rejeitado. 1000 exato é aprovado.
 
-Leia o [PRACTICES.md](./PRACTICES.md) antes de começar: o que está lá são requisitos, não
-sugestões.
-
-- [O problema](#o-problema)
-- [Contratos](#contratos)
-- [O que você precisa entregar](#o-que-você-precisa-entregar)
-- [O que já vem no repositório](#o-que-já-vem-no-repositório)
-- [Stack](#stack)
-- [Subindo a infraestrutura](#subindo-a-infraestrutura)
-- [Defesa do código](#defesa-do-código)
-- [Como entregar](#como-entregar)
+- [Arquitetura](#arquitetura)
+- [O que tem no repositório](#o-que-tem-no-repositório)
+- [Pré-requisitos](#pré-requisitos)
+- [Subindo do zero](#subindo-do-zero)
+- [Vendo o fluxo fechar](#vendo-o-fluxo-fechar)
+- [API](#api)
+- [Eventos](#eventos)
+- [Testes e quality gate](#testes-e-quality-gate)
+- [O que ficou de fora, e por quê](#o-que-ficou-de-fora-e-por-quê)
 
 ---
 
-## O problema
-
-Toda transação financeira criada precisa ser validada por um microserviço antifraude. Esse
-serviço avalia a transação e devolve o resultado, que atualiza o status do registro
-original.
-
-Uma transação tem três status possíveis: **pendente**, **aprovada** e **rejeitada**. Toda
-transação com valor **acima de 1000** deve ser rejeitada; as demais são aprovadas.
+## Arquitetura
 
 ```mermaid
 flowchart LR
-  Transaction -- Salva com status pendente --> DB[(Database)]
-  Transaction -- Evento transaction.created --> AntiFraud[Anti-Fraud]
-  AntiFraud -- Evento transaction.status.updated --> Transaction
-  Transaction -- Atualiza o status --> DB
+  Browser[Dashboard<br/>Next.js :3000]
+  API[transactions<br/>NestJS :3001]
+  DB[(Postgres)]
+  AF[anti-fraud<br/>NestJS :3002]
+
+  Browser -- POST /transactions --> API
+  API -- "1. transação PENDING + linha na outbox<br/>(mesma transação SQL)" --> DB
+  API -- "2. worker publica<br/>transaction.created" --> AF
+  AF -- "3. value > 1000 ?<br/>transaction.status.updated" --> API
+  API -- "4. histórico + compare-and-set" --> DB
+  Browser -- "polling enquanto houver PENDING" --> API
 ```
 
-A comunicação entre os dois serviços é feita por **Kafka**. A chamada de criação não pode
-esperar o resultado da validação: a transação nasce `pendente` e muda de status depois, de
-forma assíncrona.
+A imagem mental em quatro passos:
 
-## Contratos
+1. **A criação não espera nada.** O `POST /transactions` grava a transação como `PENDING`
+   **e** a mensagem de evento na tabela `outbox_messages`, **na mesma transação do
+   Postgres**. Responde `201` e acabou. Nenhuma chamada de rede acontece no caminho da
+   requisição — se o Kafka estiver fora do ar, a criação continua funcionando.
+2. **Um worker leva a mensagem para o Kafka.** A cada segundo ele varre as linhas da outbox
+   sem `published_at`, publica no tópico `transaction.created` usando o id da transação como
+   chave de partição, e marca a linha como publicada. É isso que evita o _dual write_:
+   escrever no banco e no broker sem transação comum deixaria transação nunca validada ou
+   evento sobre transação inexistente.
+3. **O antifraude é stateless.** Não tem banco, não tem Prisma, não lê a tabela de
+   transações. Recebe o valor no payload, aplica a regra e publica
+   `transaction.status.updated`. O valor trafega como string decimal (`"1000.00"`) para que a
+   comparação de fronteira não dependa de ponto flutuante.
+4. **O resultado volta e é aplicado de forma idempotente.** O serviço de transações consome
+   o resultado e, numa única transação: insere a linha no log append-only
+   `transaction_status_history` (o índice único `[transaction_id, event_id]` absorve
+   reentrega do Kafka) e faz `UPDATE ... WHERE id = ? AND status = 'PENDING'` —
+   compare-and-set, nunca `SELECT` seguido de `UPDATE`.
 
-### Criar uma transação
+No dashboard, a transação aparece `pendente` e muda sozinha: o refetch fica ativo **apenas
+enquanto houver alguma transação `PENDING` na tela**, e se desliga sozinho quando não houver
+mais nenhuma.
+
+O porquê de cada uma dessas escolhas — e o que estava na mesa junto — está no
+[DECISIONS.md](./DECISIONS.md).
+
+### Estrutura
+
+```
+apps/
+├── transactions/   API HTTP + consumidor do resultado + worker da outbox. Dono do banco.
+├── anti-fraud/     consumidor da criação. Stateless: sem banco, sem Prisma.
+└── web/            dashboard Next.js (App Router) + Tailwind
+packages/
+├── contracts/      schemas Zod dos eventos e dos contratos HTTP, compartilhados
+└── messaging/      fiação do Kafka: produtor, criação de tópicos, Clock e IdGenerator
+```
+
+Dentro de cada feature dos dois serviços a árvore mostra a fronteira que importa:
+
+```
+domain/        tipos, erros e portas. Zero framework.
+application/   casos de uso puros, com os testes ao lado.
+adapters/      HTTP, Kafka e Prisma. Controllers e handlers são finos.
+```
+
+## O que tem no repositório
+
+| Camada      | Tecnologia                                       |
+| ----------- | ------------------------------------------------ |
+| Runtime     | Node.js 22                                       |
+| Pacotes     | pnpm workspaces, sem orquestrador de build       |
+| Backend     | NestJS + TypeScript estrito                      |
+| ORM / banco | Prisma 7 + PostgreSQL 16                         |
+| Mensageria  | Kafka, pelo transporte de microserviço do NestJS |
+| Frontend    | Next.js 16 (App Router) + React 19 + Tailwind 4  |
+| Validação   | Zod, do corpo HTTP ao payload do evento          |
+| Testes      | Vitest nos três apps e nos dois pacotes          |
+
+## Pré-requisitos
+
+- **Node.js 22** (o `.nvmrc` fixa a versão: `nvm use`)
+- **pnpm** — se não tiver: `corepack enable && corepack prepare pnpm@latest --activate`
+- **Docker** com Compose, para o Postgres, o Kafka e o Kafka UI
+
+Nada mais precisa estar instalado na máquina. Postgres e Kafka sobem em container.
+
+## Subindo do zero
+
+Quatro comandos, na ordem:
+
+```bash
+cp .env.example .env     # 1. variáveis de ambiente (um único .env, na raiz)
+docker compose up -d     # 2. Postgres, Kafka e Kafka UI
+pnpm setup               # 3. instala, constrói os pacotes, migra e popula o banco
+pnpm dev                 # 4. sobe os três apps
+```
+
+O que cada passo faz:
+
+1. **`.env`** — existe um só, na raiz, e os três apps leem dele. As portas padrão são 3000
+   (dashboard), 3001 (transações) e 3002 (antifraude). Os dois serviços Nest validam as
+   variáveis com Zod no boot: faltando alguma, o processo falha na subida dizendo o nome do
+   que faltou, em vez de quebrar no primeiro request.
+2. **`docker compose up -d`** — espere os containers ficarem saudáveis (`docker compose ps`).
+   O Postgres responde em `localhost:5432`, o Kafka em `localhost:9092`, e o Kafka UI abre
+   em <http://localhost:8080>.
+3. **`pnpm setup`** — instala as dependências, gera o client do Prisma, constrói
+   `packages/contracts` e `packages/messaging` (os apps os consomem pelo `dist`), aplica as
+   migrations e roda o seed dos tipos de transferência. O seed é idempotente: rodar de novo
+   num banco populado não duplica nada.
+4. **`pnpm dev`** — sobe os três apps em paralelo, num único terminal, com a saída prefixada
+   pelo nome do pacote. Os tópicos do Kafka são criados pela própria aplicação no arranque,
+   com o número certo de partições.
+
+Depois disso:
+
+| Serviço    | Endereço                                    |
+| ---------- | ------------------------------------------- |
+| Dashboard  | <http://localhost:3000>                     |
+| API        | <http://localhost:3001> (health: `/health`) |
+| Antifraude | <http://localhost:3002> (health: `/health`) |
+| Kafka UI   | <http://localhost:8080>                     |
+
+Comandos avulsos, quando você já subiu uma vez:
+
+```bash
+pnpm --filter @challenge/transactions db:migrate   # aplicar migration nova
+pnpm --filter @challenge/transactions db:seed      # repopular os tipos de transferência
+pnpm --filter @challenge/web dev                   # subir um app só
+```
+
+## Vendo o fluxo fechar
+
+```bash
+# aprovada: 500 está abaixo do limite
+curl -s -X POST http://localhost:3001/transactions \
+  -H 'content-type: application/json' \
+  -d '{
+    "accountExternalIdDebit": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+    "accountExternalIdCredit": "0b6b1a1e-6bd3-4c0d-9b40-2c0f6f4a2b71",
+    "transferTypeId": 1,
+    "value": 500
+  }'
+```
+
+A resposta sai imediatamente com `"transactionStatus": { "name": "pending" }`. Consultando o
+mesmo id um instante depois:
+
+```bash
+curl -s http://localhost:3001/transactions/<transactionExternalId>
+```
+
+o status já é `approved`. Repetindo com `"value": 5000`, vira `rejected`. Com `"value": 1000`
+exato, **aprova** — o limite é `>`, não `>=`.
+
+Pelo dashboard, o mesmo caminho: <http://localhost:3000/transactions/nova> cria a transação,
+ela aparece na listagem como `pendente` e muda de status na tela, sem recarregar.
+
+No Kafka UI dá para ver os dois tópicos, as mensagens em cada um e o lag dos dois consumer
+groups.
+
+## API
+
+### `POST /transactions` → `201`
 
 ```json
 {
@@ -55,166 +193,146 @@ forma assíncrona.
 }
 ```
 
-### Recuperar uma transação
+Responde no formato de leitura, com `transactionStatus.name` igual a `pending`. Corpo
+inválido devolve `400` com a mensagem por campo, em português. `transferTypeId` inexistente
+também é `400`.
+
+### `GET /transactions/:transactionExternalId` → `200` | `404`
 
 ```json
 {
   "transactionExternalId": "Guid",
-  "transactionType": { "name": "" },
-  "transactionStatus": { "name": "" },
+  "transactionType": { "name": "Transferência entre contas" },
+  "transactionStatus": { "name": "approved" },
   "value": 120,
-  "createdAt": "Date"
+  "createdAt": "2026-08-19T12:00:00.000Z"
 }
 ```
 
-### Eventos
+Id malformado é `400` (erro do cliente); id válido que não existe é `404`.
 
-Estes são os dois eventos do fluxo. O formato do payload é decisão sua — só precisa ser
-consistente entre quem publica e quem consome.
+### `GET /transactions` → `200`
 
-| Evento | Publicado por | Consumido por |
-| --- | --- | --- |
-| `transaction.created` | `transactions` | `anti-fraud` |
-| `transaction.status.updated` | `anti-fraud` | `transactions` |
+Listagem paginada, ordenada por `createdAt` decrescente com desempate por `id`.
 
-## O que você precisa entregar
+| Query            | Tipo                                  | Padrão |
+| ---------------- | ------------------------------------- | ------ |
+| `status`         | `pending` \| `approved` \| `rejected` | —      |
+| `transferTypeId` | inteiro positivo                      | —      |
+| `from`, `to`     | instante ISO **com fuso**             | —      |
+| `page`           | inteiro, teto de 1000                 | `1`    |
+| `pageSize`       | inteiro, teto de 100                  | `20`   |
 
-### Fundação do projeto
-
-Você começa do zero. Espera-se que monte:
-
-- A estrutura do projeto — monorepo ou repositórios separados por serviço, a escolha é sua
-- TypeScript configurado
-- Lint e formatação, rodando também como hook de pre-commit
-- Validação de mensagem de commit (Conventional Commits)
-- Um comando único que roda todo o quality gate
-- Integração contínua no GitHub Actions, executando esse mesmo quality gate e **verde ao final**
-
-O [PRACTICES.md](./PRACTICES.md) detalha o que cada um desses itens precisa cobrir.
-
-### Backend
-
-- Endpoint de criação de transação, gravando com status `pendente` e publicando o evento de criação
-- Endpoint de consulta de uma transação pelo identificador externo
-- Endpoint de listagem paginada, com filtros por status, tipo e período — é o que alimenta o dashboard
-- Serviço antifraude consumindo o evento de criação, aplicando a regra e publicando o resultado
-- Consumo do evento de retorno no serviço de transações, atualizando o status
-- Modelagem de dados e migrations versionadas
-
-### Frontend
-
-Um dashboard sobre essa API, com:
-
-- **Listagem** paginada, com filtros por status, tipo e período
-- **Detalhe** de uma transação
-- **Criação** de transação por formulário, com validação
-- **Estados de tela** tratados explicitamente: carregando, erro e lista vazia
-
-Repare que a transação aparece como `pendente` e muda de status fora do ciclo de request do
-usuário. Como a interface reflete essa mudança é decisão sua — e queremos ler o porquê dela.
-
-### Testes
-
-Testes automatizados cobrindo as regras de negócio no backend e as telas principais no
-frontend.
-
-### DECISIONS.md
-
-Crie um `DECISIONS.md` na raiz. Para **cada decisão estruturante** — organização do projeto,
-modelagem de dados, formato dos eventos, tratamento de falha na mensageria, atualização do
-status na interface, estratégia de testes — registre:
-
-1. Qual foi a decisão
-2. Que alternativas você considerou
-3. Por que escolheu essa
-
-Inclua também sua resposta para esta pergunta:
-
-> A aplicação pode precisar lidar com um volume alto de escritas e leituras concorrentes.
-> Como você abordaria esse requisito?
-
-Não precisa implementar a resposta — precisa defendê-la.
-
-Uma decisão sem alternativa considerada não é uma decisão, é um acidente. É o **porquê** que
-nos interessa.
-
-### README do seu projeto
-
-Substitua este README pelo seu: o que você construiu, como rodar, como testar e o que ficou
-de fora. Quem clona o seu repositório precisa conseguir subir tudo sem perguntar nada.
-
-## O que já vem no repositório
-
-Só a infraestrutura local, para que todo mundo desenvolva contra os mesmos serviços:
-
-| Arquivo | Para quê |
-| --- | --- |
-| `docker-compose.yml` | Postgres, Kafka e Kafka UI |
-| `.env.example` | Variáveis de ambiente do ambiente local |
-| `.editorconfig`, `.gitignore`, `.nvmrc` | Convenções básicas de editor e versão do Node |
-| `.github/pull_request_template.md` | Template de PR |
-
-Todo o resto é seu. Nada aqui é intocável: se sua arquitetura pedir outra coisa, mude — e
-registre o porquê no `DECISIONS.md`.
-
-## Stack
-
-O uso desta stack é obrigatório, porque é a que usamos aqui:
-
-| Camada | Tecnologia |
-| --- | --- |
-| Runtime | Node.js 22+ |
-| Gerenciador de pacotes | pnpm |
-| Backend | NestJS + TypeScript |
-| ORM | Prisma |
-| Banco | PostgreSQL |
-| Mensageria | Kafka |
-| Frontend | Next.js + React + Tailwind |
-| Testes | À sua escolha, desde que rodem no quality gate |
-
-Dentro dessa stack, a organização do código é sua: paradigma, camadas, modularização e
-estilo ficam a seu critério.
-
-## Subindo a infraestrutura
-
-```bash
-cp .env.example .env
-docker compose up -d
+```json
+{
+  "items": ["... transações no formato de leitura ..."],
+  "pagination": { "page": 1, "pageSize": 20, "total": 42, "totalPages": 3 }
+}
 ```
 
-Serviços disponíveis depois disso:
+A query é estrita: chave desconhecida é `400`, e não filtro descartado em silêncio —
+`transferType` no lugar de `transferTypeId` devolveria a lista inteira sem ninguém perceber.
+`from` posterior a `to` também é `400`.
 
-| Serviço | Endereço |
-| --- | --- |
-| Postgres | `localhost:5432` |
-| Kafka | `localhost:9092` |
-| Kafka UI | http://localhost:8080 |
+## Eventos
 
-As portas das suas aplicações ficam a seu critério; o `.env.example` sugere 3001 para a API
-de transações, 3002 para o antifraude e 3000 para o dashboard.
+| Evento                       | Publicado por  | Consumido por  |
+| ---------------------------- | -------------- | -------------- |
+| `transaction.created`        | `transactions` | `anti-fraud`   |
+| `transaction.status.updated` | `anti-fraud`   | `transactions` |
 
-## Defesa do código
+Nome do tópico e nome do evento são a mesma string. Todo evento carrega o mesmo envelope:
 
-Depois da entrega, conversamos sobre o código. Você vai percorrer as escolhas do
-`DECISIONS.md`, explicar por que cada uma foi feita e o que mudaria com outros requisitos.
+```jsonc
+{
+  "eventId": "uuid", // identidade da mensagem: é o que deduplica reentrega
+  "eventType": "transaction.created",
+  "version": 1, // versão do formato de `data`
+  "occurredAt": "2026-08-19T12:00:00.000Z", // hora do fato, não da publicação
+  "correlationId": "uuid", // amarra os eventos da mesma requisição
+  "data": { "...": "payload do tipo" },
+}
+```
 
-Usar IA no dia a dia é normal e aqui também é — não é isso que estamos medindo. O que
-avaliamos é se você entende, sustenta e consegue mudar aquilo que entregou. Código que você
-não sabe explicar não conta a seu favor, tenha vindo de onde tiver vindo.
+Os schemas Zod vivem em `packages/contracts` e são importados **tanto por quem publica
+quanto por quem consome**: divergência de payload é erro de compilação, não surpresa em
+runtime. A chave de partição é sempre o `transactionExternalId`, o que garante ordem por
+transação.
 
-## Como entregar
+## Testes e quality gate
 
-1. Faça um **fork** deste repositório
-2. Desenvolva no seu fork, com commits incrementais, seguindo o [PRACTICES.md](./PRACTICES.md)
-3. Compartilhe o fork com os avaliadores, em **Settings → Collaborators**:
+Um comando roda tudo:
 
-   - alex.silveira@biud.com.br
-   - marcelo.oliveira@biud.com.br
-   - gustavofarias@biud.com.br
+```bash
+pnpm quality     # lint → build → typecheck → format:check → test
+```
 
-4. Avise a conclusão por e-mail dentro do prazo de **5 dias corridos**
+Cada etapa também roda isolada, para o ciclo curto:
 
-Ficou alguma dúvida sobre o enunciado? Pergunte — tirar dúvida faz parte do processo e não
-conta contra você.
+```bash
+pnpm lint
+pnpm typecheck
+pnpm format:check     # pnpm format escreve
+pnpm test
+pnpm build
+```
 
-Boa sorte.
+Testes de um pacote só:
+
+```bash
+pnpm --filter @challenge/transactions test
+pnpm --filter @challenge/web test
+```
+
+**Nenhum teste depende de serviço externo no ar** — não é preciso ter Docker rodando para
+`pnpm quality` passar. No backend, as regras são classes puras instanciadas na mão
+(`new TransactionReview(rule, clock, ids)`), com dublês para as portas; no frontend, os
+testes consultam a tela pelo papel acessível (`getByRole`) e mockam a camada de fetch.
+
+O mesmo `pnpm quality` roda no GitHub Actions a cada push e a cada pull request. O hook de
+`pre-commit` roda ESLint e Prettier nos arquivos alterados, e o de `commit-msg` valida a
+mensagem contra o Conventional Commits.
+
+## O que ficou de fora, e por quê
+
+Escopo obrigatório inteiro valeu mais que parte dele com sofisticação extra. O que não
+entrou está registrado no [DECISIONS.md](./DECISIONS.md) com alternativa e critério — não
+foi esquecimento:
+
+- **SSE / WebSocket** para empurrar a mudança de status. O polling condicional cobre o
+  volume desta tela. SSE seria a escolha sob volume maior, e o obstáculo real está nomeado:
+  com múltiplas instâncias de `transactions`, a que consome do Kafka não é a que segura a
+  conexão do browser — resolver exige fan-out por `LISTEN`/`NOTIFY` ou Redis.
+- **Fila de mensagens mortas.** A outbox tem teto de cinco tentativas e log de erro no
+  esgotamento, o que impede lote envenenado; DLQ de verdade exige onde republicar e quem
+  opera.
+- **Exactly-once do Kafka.** É exatamente-uma-vez dentro do Kafka, e o efeito que importa
+  aqui é um `UPDATE` no Postgres, fora dessa transação. A entrega é ao menos uma vez, com
+  deduplicação no banco.
+- **`Idempotency-Key` no `POST /transactions`.** A idempotência do sistema cobre reentrega
+  de evento, não repetição de requisição — sem chave enviada pelo cliente, o servidor não
+  distingue "mesma intenção repetida" de "duas intenções iguais", e duas transferências
+  idênticas no mesmo minuto são caso de uso legítimo.
+- **Paginação por keyset.** O dashboard mostra "página 3 de 7" e permite salto direto, o que
+  cursor não faz. Os índices que sustentam a listagem já são os mesmos que keyset usaria.
+- **`FOR UPDATE SKIP LOCKED` no worker da outbox.** É o primeiro passo se mais de uma
+  instância do worker passar a rodar; com uma, a trava em memória basta.
+- **Filtros na URL.** O estado da listagem vive no componente: link de listagem filtrada não
+  é compartilhável e o filtro não sobrevive ao refresh. É o preço conhecido de não ter que
+  mockar `next/navigation` em todo teste de tela.
+- **Turborepo, Schema Registry e Testcontainers.** Quatro pacotes e um job de CI não geram
+  tempo de build que justifique cache de tarefas; contrato compartilhado em pacote no
+  monorepo já falha em compilação; e teste que sobe container tira do gate a propriedade de
+  rodar em qualquer máquina sem Docker.
+- **Modelo de conta, com saldo e extrato.** `accountExternalIdDebit` e
+  `accountExternalIdCredit` são uuid sem chave estrangeira: a conta pertence a um serviço que
+  este desafio não modela, e aqui ela é apenas referência. A leitura devolve o formato do
+  enunciado, que não traz as contas, então não há filtro por conta nem tela de extrato — o
+  dashboard mostra transações, não o caminho do dinheiro. Saldo exigiria consistência entre
+  débito e crédito na mesma transação e colidiria com a validação assíncrona: o valor sairia
+  da conta antes de o antifraude decidir, e toda rejeição viraria estorno.
+- **Autenticação e autorização.** O enunciado não pede, e não há usuário no domínio. O CORS
+  já é restrito a uma origem vinda do ambiente, e não `*`, para a regra não nascer permissiva.
+
+A resposta para **como lidar com volume alto de escritas e leituras concorrentes** está no
+[DECISIONS.md](./DECISIONS.md), na última seção.

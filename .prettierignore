@@ -10,6 +10,5 @@ pnpm-lock.yaml
 # client do Prisma: artefato gerado, reescrito a cada `prisma generate`
 apps/transactions/src/generated/
 
-# documentos do enunciado: texto de terceiros, formatacao nao e nossa para mexer
-README.md
+# PRACTICES.md e do enunciado: texto de terceiros, formatacao nao e nossa para mexer
 PRACTICES.md
