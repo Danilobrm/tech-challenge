@@ -649,3 +649,140 @@ por página, ordenada por `createdAt` decrescente com desempate por `id`, e devo
 - muda se: a listagem passar de algo como 10^5 linhas por filtro, ou se a interface trocar
   a paginação numerada por rolagem infinita. Nesse cenário o cursor por `[createdAt, id]`
   entra e o total vira estimativa, ou some
+
+## Contrato de leitura da listagem em `packages/contracts`
+
+**Decisão:** schema Zod da resposta do `GET /transactions` (`transactionViewSchema`,
+`pageMetadataSchema`, `listTransactionsResponseSchema`) e catálogo `TRANSFER_TYPES` movidos
+para `packages/contracts`; presenter da API deriva os tipos dali e o dashboard valida a
+resposta com o mesmo schema.
+
+**Alternativas consideradas:**
+
+- interface do presenter ficando em `apps/transactions` e o front redeclarando o tipo
+- front sem validação, confiando no `as ListTransactionsResponse`
+- gerar tipos a partir de um OpenAPI publicado pela API
+- catálogo de tipos exposto por um `GET /transfer-types`
+
+**Por quê:**
+
+- interface some na compilação: o front recebe JSON em runtime e precisa de schema, não de
+  tipo. Sem validar, renomear um campo na API quebra a tela do usuário, não o build
+- a query já morava nos contratos pelo mesmo argumento; a resposta era a metade que faltava
+- o catálogo tem dois leitores — seed e filtro do dashboard. Duplicar faria o tipo novo
+  aparecer no banco e não na tela, sem ninguém perceber
+- OpenAPI seria a escolha se os serviços fossem repositórios separados; dentro do monorepo
+  ele adiciona geração de código para resolver o que o import já resolve
+- muda se: a API passar a ser consumida por cliente fora deste monorepo
+
+## CORS com origem única vinda do ambiente
+
+**Decisão:** `app.enableCors({ origin: WEB_ORIGIN })` no serviço de transações, com
+`WEB_ORIGIN` obrigatório no `.env` e normalizado para origem pura (`new URL(v).origin`).
+
+**Alternativas consideradas:**
+
+- `origin: '*'`
+- rewrite do Next (`/api/*` → serviço de transações), deixando tudo na mesma origem
+- gateway na frente dos dois serviços
+
+**Por quê:**
+
+- dashboard e API sobem em portas diferentes, e porta diferente já é origem diferente: sem
+  CORS o navegador recebe a resposta e recusa entregar ao script
+- `*` tornaria a API chamável por qualquer página aberta no navegador de quem estiver
+  autenticado — hoje não há credencial, mas a regra não deve nascer permissiva
+- rewrite do Next esconderia o serviço atrás do front e deixaria de exercitar o
+  `NEXT_PUBLIC_API_URL` que o enunciado pede
+- normalizar evita a falha mais chata do CORS: barra final no `.env` bloqueia tudo, e o
+  sintoma no navegador é um erro de rede genérico
+- muda se: entrar cookie de sessão (precisaria de `credentials` e lista de origens) ou um
+  gateway único na frente
+
+## Estado dos filtros no componente, e não na URL
+
+**Decisão:** `useState` na view guarda rascunho, filtros aplicados e página. A URL não
+carrega o estado da listagem.
+
+**Alternativas consideradas:**
+
+- `useSearchParams` + `router.replace`, com a query da URL como fonte da verdade
+- biblioteca de sincronização (nuqs)
+
+**Por quê:**
+
+- URL como estado exigiria mock de `next/navigation` em todo teste de tela e lidar com a
+  atualização assíncrona do router — custo de teste alto para a fase
+- o preço é real e conhecido: link de listagem filtrada não é compartilhável e o filtro não
+  sobrevive ao refresh
+- muda se: a tela precisar ser compartilhada por link ou aparecer "voltar" preservando o
+  filtro — aí a URL passa a ser a fonte da verdade e o estado local vira derivado
+
+## Filtro aplicado por submissão, não a cada tecla
+
+**Decisão:** dois estados de filtro — rascunho (o que está nos campos) e aplicado (o que a
+busca usa). A requisição só sai no "Aplicar filtros", e aplicar volta para a página 1.
+
+**Alternativas consideradas:**
+
+- buscar a cada mudança de campo, com debounce
+- buscar a cada mudança, sem debounce
+
+**Por quê:**
+
+- período tem dois campos: buscar a cada tecla dispararia requisição para intervalo pela
+  metade, que a API recusa com 400 (`from` posterior a `to`)
+- debounce esconde o problema atrás de um tempo arbitrário e ainda gera busca descartada
+- voltar para a página 1 evita o estado sem saída: filtro novo encurta a lista, e a página
+  sete do resultado anterior costuma não existir no novo
+- muda se: a listagem passar a ter um único campo de busca textual, onde busca incremental
+  é o comportamento esperado
+
+## Sistema de interface próprio, com tokens no `@theme`
+
+**Decisão:** primitivos em `src/components/ui` (Button, Select, Input, Field, Card, Badge,
+StatusPanel, Spinner) sobre tokens semânticos declarados no `@theme` do Tailwind. Sem
+biblioteca de componentes; sem sombra, separação por borda de 1px; `<select>` nativo com
+`appearance-none` e seta desenhada.
+
+**Alternativas consideradas:**
+
+- shadcn/ui ou Radix como base de primitivos
+- MUI / Chakra
+- Tailwind aplicado direto em cada componente, sem primitivos nem tokens
+- dropdown próprio em JavaScript, para controle total do visual
+
+**Por quê:**
+
+- o enunciado pede Tailwind; biblioteca de componentes traria dependência e um segundo
+  sistema de estilo para uma tela e meia
+- Tailwind espalhado sem token faz a cor virar decisão de cada arquivo: trocar a identidade
+  vira caça a `zinc-600` em vinte lugares
+- dropdown em JS custaria papel `combobox`, navegação por teclado, busca por digitação e o
+  seletor nativo do celular — tudo que o elemento entrega de graça, e nada disso se paga
+  com CSS depois
+- muda se: o produto crescer para dezenas de telas com combos que o HTML não tem
+  (multi-seleção, combobox com busca) — aí Radix entra como base e os tokens permanecem
+
+## Tabela permanece montada durante o refetch
+
+**Decisão:** o estado `ready` carrega um `refreshing`. Enquanto a nova página não chega, a
+tabela continua na tela marcada com `aria-busy`, e a região viva (`role="status"`) existe
+desde o primeiro render. O painel de espera cheio fica só para a primeira carga.
+
+**Alternativas consideradas:**
+
+- trocar a tabela pelo painel de "carregando" em toda busca
+- overlay bloqueando a tabela
+- não indicar nada durante o refetch
+
+**Por quê:**
+
+- desmontar a tabela tira o foco do teclado do botão que acabou de ser clicado ("próxima
+  página"), e o foco volta para o `body`: o próximo Tab recomeça do topo do documento
+- região viva inserida junto com o texto costuma não ser anunciada pelo leitor de tela;
+  ela precisa existir antes de mudar de conteúdo
+- os três estados continuam explícitos — o que muda é que "carregando de novo" deixou de
+  ser tratado como "carregando do zero"
+- muda se: a listagem ganhar polling (fase seguinte), onde nem o `aria-busy` deve piscar a
+  cada ciclo
