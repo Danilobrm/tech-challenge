@@ -14,3 +14,4 @@ export * from './events/transaction-created';
 export * from './events/transaction-status-updated';
 
 export * from './http/create-transaction';
+export * from './http/list-transactions';
