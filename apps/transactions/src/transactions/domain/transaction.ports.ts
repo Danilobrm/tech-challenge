@@ -3,6 +3,8 @@ import type {
   OutboxMessageDraft,
   PersistedTransaction,
   StatusUpdateOutcome,
+  TransactionPage,
+  TransactionPageQuery,
   TransactionResolutionUpdate,
 } from './transaction';
 
@@ -20,4 +22,14 @@ export interface PendingTransactionWriter {
 
 export interface TransactionStatusStore {
   applyResolution(update: TransactionResolutionUpdate): Promise<StatusUpdateOutcome>;
+}
+
+/**
+ * Leitura separada da escrita: consultar nao precisa de outbox, de evento nem de
+ * compare-and-set, e juntar as duas numa porta so obrigaria cada dobra de teste a
+ * implementar metodos que o caso de uso testado nem chama.
+ */
+export interface TransactionReader {
+  findById(transactionExternalId: string): Promise<PersistedTransaction | null>;
+  list(query: TransactionPageQuery): Promise<TransactionPage>;
 }

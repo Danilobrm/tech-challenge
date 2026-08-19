@@ -9,6 +9,7 @@ import type {
   PersistedTransaction,
 } from '../domain/transaction';
 import type { PendingTransactionWriter } from '../domain/transaction.ports';
+import { toPersistedTransaction } from './to-persisted-transaction';
 
 /** Codigo do Prisma para violacao de chave estrangeira. */
 const FOREIGN_KEY_VIOLATION = 'P2003';
@@ -52,13 +53,7 @@ export class PrismaPendingTransactionWriter implements PendingTransactionWriter 
           },
         });
 
-        return {
-          transactionExternalId: created.id,
-          transferTypeName: created.transferType.name,
-          status: created.status,
-          value: created.value.toFixed(2),
-          createdAt: created.createdAt,
-        };
+        return toPersistedTransaction(created);
       });
     } catch (error) {
       if (

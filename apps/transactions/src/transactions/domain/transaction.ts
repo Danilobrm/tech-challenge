@@ -61,3 +61,41 @@ export class UnknownTransferTypeError extends Error {
     this.name = 'UnknownTransferTypeError';
   }
 }
+
+/**
+ * Filtros da listagem ja no vocabulario do banco. A borda HTTP traduz o rotulo publico
+ * antes de chegar aqui; o adaptador so monta o `WHERE`.
+ */
+export interface TransactionFilters {
+  status?: TransactionStatusName | undefined;
+  transferTypeId?: number | undefined;
+  createdFrom?: Date | undefined;
+  createdTo?: Date | undefined;
+}
+
+/** Uma fatia da listagem: os filtros mais a janela de linhas pedida. */
+export interface TransactionPageQuery {
+  filters: TransactionFilters;
+  skip: number;
+  take: number;
+}
+
+/**
+ * `total` e a contagem com os mesmos filtros, sem a janela: e o que permite dizer quantas
+ * paginas existem sem varrer todas elas.
+ */
+export interface TransactionPage {
+  items: PersistedTransaction[];
+  total: number;
+}
+
+/**
+ * Erro de dominio: o identificador veio do cliente, entao nao encontrar e resposta
+ * legitima da consulta, e nao defeito do servico. A borda HTTP traduz para 404.
+ */
+export class TransactionNotFoundError extends Error {
+  constructor(readonly transactionExternalId: string) {
+    super(`Transacao ${transactionExternalId} nao existe`);
+    this.name = 'TransactionNotFoundError';
+  }
+}

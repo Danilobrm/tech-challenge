@@ -611,3 +611,41 @@ mudou a transação; quando não mudou, grava `null`.
   transição saiu dele
 - muda se: o histórico passar a ser a fonte da verdade do status corrente. Aí toda linha
   precisa de origem conhecida, e a origem vira parte do que o compare-and-set devolve
+
+## Paginação por deslocamento, com `total` contado junto
+
+**Decisão:** a listagem pagina com `page` e `pageSize` (`OFFSET`/`LIMIT`), teto de 100 itens
+por página, ordenada por `createdAt` decrescente com desempate por `id`, e devolve
+`total` e `totalPages` contados com os mesmos filtros, na mesma transação da página.
+
+**Alternativas consideradas:**
+
+- keyset (cursor por `[createdAt, id]`, `WHERE (createdAt, id) < (?, ?)`)
+- cursor opaco codificado, escondendo o critério de ordenação do cliente
+- devolver só `hasNext`, sem contagem total
+- estimar o total pelo `reltuples` do `pg_class` em vez de contar
+
+**Por quê:**
+
+- o dashboard é o cliente, e ele mostra "página 3 de 7" e permite salto direto. Keyset não
+  sabe dizer em que página está nem pular para a sétima: ele só anda para frente e para
+  trás a partir de onde parou
+- o custo do `OFFSET` é proporcional ao deslocamento — o banco varre e descarta as linhas
+  puladas — e o `COUNT(*)` é uma segunda varredura do mesmo filtro. Nas dezenas de milhares
+  de linhas deste exercício isso é irrelevante; é nas centenas de milhares que vira o
+  gargalo, e aí os dois problemas aparecem juntos
+- o preço honesto do deslocamento é o desalinhamento: uma inserção durante a navegação
+  empurra as linhas para baixo e faz um item aparecer duas vezes ou nenhuma entre páginas
+  vizinhas. Com ordenação decrescente as inserções entram no topo, então o efeito existe.
+  O desempate por `id` só garante ordem determinística, não imunidade ao deslocamento —
+  quem elimina isso é keyset, que ancora no último item visto e não em uma contagem
+- os índices que sustentam a listagem — `[status, createdAt]`, `[transferTypeId, createdAt]`
+  e `[createdAt, id]` para a listagem sem filtro — são os mesmos que keyset usaria: migrar
+  é trocar o `WHERE` e o formato do cursor, sem tocar em schema
+- o teto de `page` existe pelo mesmo motivo do teto de `pageSize`: sem ele o cliente decide
+  quantas linhas o banco varre para descartar. É também onde a decisão se anuncia — passar
+  do teto é o sinal de que o caso pede cursor, não uma página mais distante
+- o teto de 100 existe porque sem ele o cliente escolhe o custo da consulta
+- muda se: a listagem passar de algo como 10^5 linhas por filtro, ou se a interface trocar
+  a paginação numerada por rolagem infinita. Nesse cenário o cursor por `[createdAt, id]`
+  entra e o total vira estimativa, ou some
