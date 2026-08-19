@@ -1,8 +1,9 @@
+import { TransactionsView } from '@/views/transactions-view';
+
 export default function HomePage() {
   return (
-    <main className="mx-auto flex max-w-3xl flex-col gap-2 p-8">
-      <h1 className="text-2xl font-semibold">Transacoes</h1>
-      <p className="text-zinc-600">A listagem de transacoes entra nesta pagina.</p>
+    <main className="mx-auto w-full max-w-6xl px-6 py-10">
+      <TransactionsView />
     </main>
   );
 }
