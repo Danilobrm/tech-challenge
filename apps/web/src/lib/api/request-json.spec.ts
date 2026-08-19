@@ -83,6 +83,53 @@ describe('requestJson', () => {
     });
   });
 
+  it('detalha qual campo a api recusou', async () => {
+    respondWith(
+      {
+        message: 'requisicao invalida',
+        issues: [{ path: 'value', message: 'valor deve ser maior que zero' }],
+      },
+      400,
+    );
+
+    await expect(requestJson({ path: '/transactions', schema })).rejects.toMatchObject({
+      message: 'requisicao invalida (value: valor deve ser maior que zero)',
+    });
+  });
+
+  it('nao inventa nome de campo quando a recusa nao e de um campo do corpo', async () => {
+    // Parametro de rota invalido: o caminho volta vazio, e "`: Invalid UUID`" nao diria nada.
+    respondWith(
+      { message: 'requisicao invalida', issues: [{ path: '', message: 'Invalid UUID' }] },
+      400,
+    );
+
+    await expect(requestJson({ path: '/transactions/x', schema })).rejects.toMatchObject({
+      message: 'requisicao invalida (Invalid UUID)',
+    });
+  });
+
+  it('carrega o status junto do erro, para a tela separar ausencia de falha', async () => {
+    respondWith({ message: 'transacao nao encontrada' }, 404);
+
+    await expect(requestJson({ path: '/transactions/x', schema })).rejects.toMatchObject({
+      kind: 'http',
+      status: 404,
+    });
+  });
+
+  it('envia o corpo como json na escrita', async () => {
+    respondWith({ ok: true });
+
+    await requestJson({ path: '/transactions', method: 'POST', body: { value: 10 }, schema });
+
+    const init = vi.mocked(fetch).mock.calls[0]?.[1];
+
+    expect(init?.method).toBe('POST');
+    expect(init?.body).toBe('{"value":10}');
+    expect(init?.headers).toMatchObject({ 'content-type': 'application/json' });
+  });
+
   it('deixa o cancelamento subir, porque nao e falha', async () => {
     const abort = new Error('The operation was aborted.');
     abort.name = 'AbortError';

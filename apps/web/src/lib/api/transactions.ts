@@ -1,5 +1,9 @@
-import { listTransactionsResponseSchema } from '@challenge/contracts';
-import type { ListTransactionsResponse } from '@challenge/contracts';
+import { listTransactionsResponseSchema, transactionViewSchema } from '@challenge/contracts';
+import type {
+  CreateTransactionInput,
+  ListTransactionsResponse,
+  TransactionView,
+} from '@challenge/contracts';
 
 import { requestJson } from '@/lib/api/request-json';
 
@@ -18,6 +22,34 @@ export function fetchTransactionList(
     path: '/transactions',
     searchParams: params,
     schema: listTransactionsResponseSchema,
+    signal,
+  });
+}
+
+export function fetchTransaction(
+  transactionExternalId: string,
+  signal?: AbortSignal,
+): Promise<TransactionView> {
+  return requestJson({
+    path: `/transactions/${encodeURIComponent(transactionExternalId)}`,
+    schema: transactionViewSchema,
+    signal,
+  });
+}
+
+/**
+ * A resposta e a transacao recem-criada, ja com status pendente: a validacao da antifraude
+ * acontece fora do ciclo desta requisicao, entao o `201` nao promete status final.
+ */
+export function createTransaction(
+  input: CreateTransactionInput,
+  signal?: AbortSignal,
+): Promise<TransactionView> {
+  return requestJson({
+    path: '/transactions',
+    method: 'POST',
+    body: input,
+    schema: transactionViewSchema,
     signal,
   });
 }
