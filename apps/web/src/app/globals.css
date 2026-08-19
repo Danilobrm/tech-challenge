@@ -1,5 +1,54 @@
 @import 'tailwindcss';
 
-@theme inline {
+/**
+ * Tokens da interface. Componente nunca escreve cor, raio ou sombra solta: escreve o token.
+ * Trocar a identidade visual do dashboard passa a ser mexer aqui, e nao caçar hex espalhado
+ * por vinte arquivos.
+ */
+@theme {
   --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif;
+
+  /* Superficies: fundo da pagina, cartao e faixa de destaque dentro do cartao. */
+  --color-canvas: oklch(97.8% 0.003 264);
+  --color-surface: oklch(100% 0 0);
+  --color-surface-muted: oklch(96.8% 0.004 264);
+
+  /* Traco. A interface se apoia em borda de 1px, nao em sombra. */
+  --color-line: oklch(92.4% 0.005 264);
+  --color-line-strong: oklch(86.5% 0.007 264);
+
+  /* Texto, do mais forte ao mais apagado. */
+  --color-ink: oklch(23% 0.014 264);
+  --color-ink-muted: oklch(50.5% 0.014 264);
+  --color-ink-subtle: oklch(62% 0.012 264);
+
+  /* Acao primaria. */
+  --color-accent: oklch(51% 0.17 265);
+  --color-accent-hover: oklch(45% 0.17 265);
+  --color-accent-ink: oklch(100% 0 0);
+  --color-accent-ring: oklch(51% 0.17 265 / 35%);
+
+  /* Estados, sempre em par: fundo suave e texto legivel sobre ele. */
+  --color-positive-soft: oklch(95.5% 0.04 160);
+  --color-positive-ink: oklch(42% 0.11 160);
+  --color-positive-line: oklch(88% 0.06 160);
+
+  --color-attention-soft: oklch(96.5% 0.05 85);
+  --color-attention-ink: oklch(45% 0.11 70);
+  --color-attention-line: oklch(89% 0.07 85);
+
+  --color-critical-soft: oklch(96% 0.03 20);
+  --color-critical-ink: oklch(45% 0.16 22);
+  --color-critical-line: oklch(89% 0.05 20);
+  --color-critical: oklch(52% 0.19 22);
+  --color-critical-hover: oklch(46% 0.19 22);
+
+  /* Um raio para controle, um para superficie. Dois, e nao sete. */
+  --radius-control: 0.5rem;
+  --radius-surface: 0.875rem;
+}
+
+/* Altura unica para todo controle: e o que faz o formulario alinhar sem ajuste manual. */
+@utility control-height {
+  height: 2.5rem;
 }
